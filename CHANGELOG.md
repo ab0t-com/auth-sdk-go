@@ -4,6 +4,19 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-07-25
+
+### Added
+- **A release SOP that is enforced rather than remembered.** `make release VERSION=x.y.z`
+  refuses on a dirty tree, a missing changelog section, an existing tag, or a
+  failing `make check`, then bumps `version.go`, commits, tags and pushes.
+  `TestVersionMatchesChangelog` fails if `Version` has no changelog section behind
+  it. See `RELEASING.md`.
+
+  This exists because v0.1.0 shipped without a fix that was already on `main` — it
+  had been committed after the tag. Every local test passed; only a clean-room
+  `go get` by tag revealed it. Remembering harder does not fix that; a guard does.
+
 ## [0.3.0] — 2026-07-25
 
 ### Added
@@ -110,6 +123,7 @@ request with an untyped id now returns `*ErrUntypedID` without sending it. If yo
 were relying on that request going out, it could only ever have come back
 `allowed:false` — the guard turns a silent wrong deny into a clear error.
 
+[0.4.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.1.0
