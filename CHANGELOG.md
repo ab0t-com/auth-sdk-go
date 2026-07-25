@@ -4,7 +4,7 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] — 2026-07-25
 
 ### Added
 - Zanzibar combined ids are now validated before the request. `ZanzibarCheck` and
@@ -80,4 +80,11 @@ path `github.com/ab0t-com/auth-sdk-go`.
   can be applied twice on an endpoint with no natural dedup key. Use
   `WithMaxRetries(0)` on calls where once-only semantics matter. See README.
 
+### Note for anyone on v0.1.0
+The typed-id guard is a behaviour change: a `ZanzibarCheck` that previously sent a
+request with an untyped id now returns `*ErrUntypedID` without sending it. If you
+were relying on that request going out, it could only ever have come back
+`allowed:false` — the guard turns a silent wrong deny into a clear error.
+
+[0.2.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.1.0
