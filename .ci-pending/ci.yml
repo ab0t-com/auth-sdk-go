@@ -1,9 +1,26 @@
 name: CI
 
+# ─────────────────────────────────────────────────────────────────────────────
+# MANUAL ONLY — this workflow does NOT run by itself.
+#
+# Deliberately restricted to workflow_dispatch: no push trigger, no
+# pull_request trigger, no schedule. Automatic execution has not been approved,
+# and a workflow that starts running the moment it merges is exactly the kind of
+# thing that should be an explicit decision rather than a side effect of adding
+# a file.
+#
+# Run it from the Actions tab, or:  gh workflow run ci.yml
+#
+# To enable automatic runs LATER, add the triggers back deliberately:
+#   push:
+#     branches: [main]
+#   pull_request:
+#
+# It also uses NO third-party actions beyond the two official ones
+# (actions/checkout, actions/setup-go). In particular it does not run gitleaks
+# or any other scanner that needs a licence to run in GitHub Actions.
+# ─────────────────────────────────────────────────────────────────────────────
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:

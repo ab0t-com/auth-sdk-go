@@ -1,6 +1,5 @@
 # ab0t Auth Service — Go SDK
 
-[![CI](https://github.com/ab0t-com/auth-sdk-go/actions/workflows/ci.yml/badge.svg)](https://github.com/ab0t-com/auth-sdk-go/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/ab0t-com/auth-sdk-go.svg)](https://pkg.go.dev/github.com/ab0t-com/auth-sdk-go)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -168,6 +167,17 @@ Pre-1.0. Minor releases may change contracts when the service's contract changes
 
 The **live OpenAPI spec is the source of truth**, not this SDK. If they disagree, this SDK has a
 bug — please report it.
+
+## Checks
+
+There is no automatic CI on this repository yet, by choice. Run the same checks
+locally — they are the ones a CI job would run:
+
+```bash
+make check    # gofmt + go vet + go test + the stdlib-only assertion
+```
+
+A manual-dispatch-only workflow is staged at `.ci-pending/`; see the README there.
 
 ## Contributing
 

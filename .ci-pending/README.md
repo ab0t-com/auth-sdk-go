@@ -19,7 +19,24 @@ git commit -m "ci: add GitHub Actions workflow"
 git push
 ```
 
-Then remove the CI badge caveat from `README.md` if you added one.
+## ⚠️ It is MANUAL-ONLY on purpose
+
+The workflow declares `on: workflow_dispatch:` and nothing else — **no `push`, no
+`pull_request`, no `schedule`**. Installing the file does not start anything
+running; someone has to trigger it from the Actions tab or with
+`gh workflow run ci.yml`.
+
+That is deliberate: automatic execution has not been approved, and a workflow
+that begins running the moment it merges is a side effect rather than a decision.
+Enabling auto-runs later means adding the triggers back explicitly — the exact
+lines are commented in the file.
+
+It uses **no third-party actions** beyond the two official ones
+(`actions/checkout`, `actions/setup-go`). In particular it does **not** run
+gitleaks or any other scanner that requires a licence to run in GitHub Actions.
+
+Because it does not run automatically, the README carries no CI status badge —
+a badge for a workflow that never fires would be misleading.
 
 ## What it runs
 
