@@ -4,6 +4,45 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-07-25
+
+### Added
+- **`WithObserver(fn)` — an observability seam.** One `RequestInfo` per completed
+  HTTP attempt: method, endpoint, status, duration, attempt number, whether a retry
+  follows, error, and the service's request id. **Retries are visible** — a retry
+  storm that looks like one slow call is the thing you most need to see.
+
+  Deliberately a callback, not a logger: a logger in a library imposes three
+  decisions on the consumer (which package, which format, which level) and would
+  add a dependency to a module whose defining property is having none. This feeds
+  slog, zap, OTel or a test assertion equally.
+
+  It carries **no headers and no bodies**. This client's job is handling
+  credentials, and an observability hook is exactly what ends up in a log
+  aggregator; a path and a status cannot leak a token. The endpoint has its query
+  string stripped, so it is usable as a metric label.
+
+- **`authclienttest` — exported test doubles.** `Fake` (implements both interfaces,
+  records calls) plus ready-made `Allow()`, `Deny()` and **`Unavailable()`**, and
+  `Server`, an httptest-backed fake auth service for exercising the *real* client.
+
+  `Unavailable()` is the point. Every consumer writes allow and deny fakes; almost
+  nobody tests what their handler does when the auth service is unreachable — the
+  one path where a mistake means an outage silently unlocks the write surface. Now
+  it is one line. A separate package, so the root's dependency surface is untouched.
+
+- **`authmw` — the HTTP middleware, promoted out of `examples/`.** `Authenticate`
+  (attach identity; missing credential stays anonymous, invalid is 401, unreachable
+  is 503) and `Require(action, resourceType)` (401 / 403 / 503 / handler), plus
+  `RequireFunc` for routers that compose `func(http.Handler) http.Handler`.
+
+  It lived only in an example, which meant every consumer copy-pasted it, inherited
+  whatever was wrong with it that day, and got none of the fixes — the wrong
+  distribution mechanism for a component whose failure mode is "the write surface
+  is silently unlocked". **Fail-closed is the default and cannot be forgotten:**
+  `FailOpen` must be set deliberately, and a test asserts the default has not
+  drifted.
+
 ## [0.4.0] — 2026-07-25
 
 ### Added
@@ -123,6 +162,7 @@ request with an untyped id now returns `*ErrUntypedID` without sending it. If yo
 were relying on that request going out, it could only ever have come back
 `allowed:false` — the guard turns a silent wrong deny into a clear error.
 
+[0.5.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.2.0

@@ -145,6 +145,10 @@ type Client struct {
 	backoffMax       time.Duration
 
 	jwks *jwksCache
+
+	// observer, when set, receives one RequestInfo per completed HTTP attempt.
+	// See observe.go.
+	observer Observer
 }
 
 // New constructs a Client. baseURL may be "" to use DefaultBaseURL.

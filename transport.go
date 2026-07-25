@@ -131,14 +131,18 @@ func (c *Client) do(ctx context.Context, method, path, contentType string, body 
 		}
 		c.applyCommon(req, bearer)
 
+		started := time.Now()
 		resp, err := c.http.Do(req)
 		if err != nil {
 			// Context cancellation/deadline is terminal.
 			if ctx.Err() != nil {
+				c.observe(RequestInfo{Method: method, Endpoint: endpoint, Duration: time.Since(started), Attempt: attempt, Err: err})
 				return err
 			}
 
-			if attempt < c.maxRetries && isIdempotent(method) {
+			willRetry := attempt < c.maxRetries && isIdempotent(method)
+			c.observe(RequestInfo{Method: method, Endpoint: endpoint, Duration: time.Since(started), Attempt: attempt, Retrying: willRetry, Err: err})
+			if willRetry {
 				if werr := c.wait(ctx, attempt, 0); werr != nil {
 					return werr
 				}
@@ -151,6 +155,8 @@ func (c *Client) do(ctx context.Context, method, path, contentType string, body 
 		resp.Body.Close()
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			c.observe(RequestInfo{Method: method, Endpoint: endpoint, Status: resp.StatusCode,
+				Duration: time.Since(started), Attempt: attempt, RequestID: requestID(resp.Header)})
 			if out == nil || len(data) == 0 {
 				return nil
 			}
@@ -159,7 +165,10 @@ func (c *Client) do(ctx context.Context, method, path, contentType string, body 
 
 		apiErr := parseAPIError(resp.StatusCode, method, endpoint, requestID(resp.Header), string(data))
 
-		if attempt < c.maxRetries && IsRetryable(apiErr) {
+		willRetry := attempt < c.maxRetries && IsRetryable(apiErr)
+		c.observe(RequestInfo{Method: method, Endpoint: endpoint, Status: resp.StatusCode,
+			Duration: time.Since(started), Attempt: attempt, Retrying: willRetry, RequestID: requestID(resp.Header)})
+		if willRetry {
 			if werr := c.wait(ctx, attempt, retryAfter(resp.Header)); werr != nil {
 				return werr
 			}

@@ -168,23 +168,73 @@ and the rest keep working unchanged, so anything the service can do stays reacha
 > duplicate side effect — two invitations, two orgs, two emitted webhooks. Where once-only semantics
 > matter, use `WithMaxRetries(0)` for that client or call.
 
-## Testing against this SDK
+## HTTP middleware
 
-Depend on the interfaces and no network is involved:
+`authmw` gates routes, so you do not copy-paste a gate out of an example:
 
 ```go
-type fakeAuthz struct{ allow bool; err error }
+import "github.com/ab0t-com/auth-sdk-go/authmw"
 
-func (f fakeAuthz) Authorize(context.Context, string, string, auth.Resource) (bool, error) {
-    return f.allow, f.err
-}
-
-// Now test allow, deny, and auth-service-unavailable — including that your
-// handler answers 503 rather than 200 on the last one.
+gate := &authmw.Gate{V: client, A: client}
+mux.Handle("POST /admin", gate.Require("admin.write", "service", adminHandler))
+http.ListenAndServe(":8080", gate.Authenticate(mux))
 ```
 
-For end-to-end tests, point `auth.New(srv.URL)` at an `httptest.Server` and assert what the client
-sends. That is how this SDK tests itself — see `fixes_test.go`.
+`401` no credential · `403` denied · **`503` auth service unreachable** · else your handler.
+
+That 503 is the whole point. "I could not decide" is not "yes" — a gate that allows on error turns
+an auth-service blip into an open door, quietly, because the requests succeed and nothing pages
+anyone. Fail-closed is the default and `FailOpen` must be set deliberately.
+
+## Testing
+
+Test doubles ship with the SDK — you do not have to write them:
+
+```go
+import "github.com/ab0t-com/auth-sdk-go/authclienttest"
+
+gate := &authmw.Gate{V: authclienttest.Allow(), A: authclienttest.Allow()}       // 200
+gate = &authmw.Gate{V: authclienttest.Deny(), A: authclienttest.Deny()}          // 403
+gate = &authmw.Gate{V: authclienttest.Unavailable(), A: authclienttest.Unavailable()} // 503
+```
+
+**Test the third one.** Everyone tests allow and deny; almost nobody tests what their handler does
+when the auth service is unreachable — the one path where a mistake means an outage silently unlocks
+the write surface.
+
+`Fake` also records what was asked, so you can assert the *action* actually reached the authorizer
+(if it stopped being sent, every authenticated caller would be authorized for everything, and every
+status-code assertion would still pass):
+
+```go
+f := authclienttest.Allow()
+// … drive your handler …
+for _, c := range f.Calls() {
+    if c.Method == "Authorize" && c.Action != "economy.transfer" { t.Error(...) }
+}
+```
+
+To exercise the **real** client — its retries, decoding and error mapping — use the fake service:
+
+```go
+srv := authclienttest.NewServer()
+defer srv.Close()
+client := auth.New(srv.URL())
+srv.SetStatus(503)   // now assert your handler answers 503, not 200
+```
+
+## Observability
+
+```go
+client := auth.New("", auth.WithObserver(func(i auth.RequestInfo) {
+    slog.Info("auth", "endpoint", i.Endpoint, "status", i.Status,
+        "ms", i.Duration.Milliseconds(), "attempt", i.Attempt)
+}))
+```
+
+One event per **attempt**, so retries are visible rather than hidden inside one slow call. The
+endpoint has its query string stripped, so it works as a metric label. No headers and no bodies are
+carried — a path and a status cannot leak a credential.
 
 ## Known gaps
 
