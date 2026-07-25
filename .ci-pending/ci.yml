@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Test the declared minimum and the current stable. The declared minimum
+        # is a promise to consumers; if it stops building, either fix it or bump
+        # the go directive deliberately.
+        go: ['1.23', 'stable']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - name: gofmt
+        run: test -z "$(gofmt -l . | tee /dev/stderr)"
+      - name: vet
+        run: go vet ./...
+      - name: test
+        run: go test -race ./...
+
+  stdlib-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      # This module is embedded in other people's binaries. A dependency added
+      # here becomes a dependency everywhere, so the property is enforced, not
+      # merely documented.
+      - name: assert no dependencies
+        run: |
+          if grep -q '^require' go.mod; then
+            echo "::error::go.mod gained a dependency; this module must stay stdlib-only"
+            exit 1
+          fi
+          echo "OK: stdlib-only"

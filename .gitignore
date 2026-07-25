@@ -1,0 +1,56 @@
+# ── secrets / credentials — NEVER publish ────────────────────────────────────
+# The whole point of this SDK is handling credentials; none may ever land in git.
+*.pem
+*.key
+*.p12
+*.crt
+*.jks
+.env
+.env.*
+!.env.example
+token
+tokens.json
+credentials.json
+service-account*.json
+*_rsa
+*_ed25519
+.netrc
+
+# ── internal / not for public consumption ────────────────────────────────────
+# This repo is PUBLIC. Internal planning artefacts live in the private repos that
+# consume this SDK, never here.
+tickets/
+ticket/
+_internal/
+_private/
+*_INTERNAL.md
+*_PRIVATE.md
+scratch/
+notes/
+TODO.local.md
+
+# ── build / test output ──────────────────────────────────────────────────────
+/bin/
+/dist/
+*.test
+*.out
+coverage.out
+coverage.html
+*.prof
+
+# ── editor / OS noise ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.tmp
+*.log
+*.bak
+
+# ── Go ───────────────────────────────────────────────────────────────────────
+# vendor/ is intentionally NOT ignored: consumers may vendor this module.
+go.work
+go.work.sum
