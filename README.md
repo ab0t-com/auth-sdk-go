@@ -170,14 +170,31 @@ bug — please report it.
 
 ## Checks
 
-There is no automatic CI on this repository yet, by choice. Run the same checks
-locally — they are the ones a CI job would run:
+There is no automatic CI on this repository yet, by choice. Run the checks locally:
 
 ```bash
 make check    # gofmt + go vet + go test + the stdlib-only assertion
+make drift    # compare this SDK against the LIVE OpenAPI spec
 ```
 
 A manual-dispatch-only workflow is staged at `.ci-pending/`; see the README there.
+
+### `make drift`
+
+The spec is the source of truth and it moves. `make drift` fetches
+`https://auth.service.ab0t.com/openapi.json` and reports two things:
+
+- **MISSING** — an operation in the spec with no SDK method: a capability you cannot reach.
+- **PHANTOM** — an SDK request path the spec does not define: a call that would 404.
+
+PHANTOM is the more dangerous direction. A missing method is a gap someone notices;
+a phantom one looks like a working method until it is called.
+
+Current status: **283/283 operations reachable**, plus the four documented
+[known gaps](#known-gaps), which the tool lists separately and tells you to remove
+the warnings from if the server ever ships them.
+
+`make drift-strict` exits non-zero on any disagreement, if you want it as a gate.
 
 ## Contributing
 
