@@ -4,6 +4,27 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Zanzibar combined ids are now validated before the request. `ZanzibarCheck` and
+  `ZanzibarCheckBulk` return `*ErrUntypedID` when a `subject` or `object` is
+  missing its `type:` prefix, instead of sending a request that can only come back
+  `allowed:false`. A bare `"alice"` where `"user:alice"` was meant is
+  indistinguishable, server-side, from an id it has simply never seen — so the
+  caller reads a legitimate DENY and debugs the wrong thing. The bulk form names
+  the offending index (`check 2: …`).
+- `make drift` / `scripts/spec-coverage.py` — compares this SDK against the live
+  OpenAPI spec in both directions and reports MISSING (a capability consumers
+  cannot reach) and PHANTOM (a call that would 404). Current: 283/283 operations
+  reachable. Stdlib-only; no network unless you ask it to fetch.
+
+### Changed
+- The staged CI workflow is **manual-dispatch only** (`workflow_dispatch`, no
+  `push`/`pull_request`), so installing it does not start anything running.
+  Dropped the CI status badge, which would have advertised a workflow that never
+  fires.
+
 ## [0.1.0] — 2026-07-25
 
 First public release. Extracted from a private in-repo client, reconciled against

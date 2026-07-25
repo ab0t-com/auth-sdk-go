@@ -2,7 +2,10 @@ package authclient
 
 import (
 	"context"
+	"fmt"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -370,6 +373,9 @@ func zanzibarBase(storeID string) string {
 // ZanzibarCheck performs a single permission check.
 // POST /zanzibar/stores/{store_id}/check.
 func (c *Client) ZanzibarCheck(ctx context.Context, storeID string, req CheckPermissionRequest, callerToken string) (*CheckPermissionResponse, error) {
+	if err := req.checkTypedIDs(); err != nil {
+		return nil, err
+	}
 	var out CheckPermissionResponse
 	if err := c.doJSON(ctx, "POST", zanzibarBase(storeID)+"/check", req, &out, callerToken); err != nil {
 		return nil, err
@@ -383,6 +389,14 @@ func (c *Client) ZanzibarCheck(ctx context.Context, storeID string, req CheckPer
 // index them with the same offset you built the request with, or use
 // BulkCheckResults.Allowed(i).
 func (c *Client) ZanzibarCheckBulk(ctx context.Context, storeID string, req BulkCheckRequest, callerToken string) (BulkCheckResults, error) {
+	for i, chk := range req.Checks {
+		if err := chk.checkTypedIDs(); err != nil {
+			// Name the offending element: a bulk request is built in a loop and
+			// "check 7 is wrong" is the difference between a one-minute fix and
+			// an afternoon.
+			return nil, fmt.Errorf("check %d: %w", i, err)
+		}
+	}
 	var out BulkCheckResults
 	if err := c.doJSON(ctx, "POST", zanzibarBase(storeID)+"/check/bulk", req, &out, callerToken); err != nil {
 		return nil, err
@@ -616,4 +630,50 @@ func (c *Client) WatchStatus(ctx context.Context, storeID, callerToken string) (
 		return nil, err
 	}
 	return &out, nil
+}
+
+// ---- Typed-id validation ----
+//
+// The Zanzibar wire model uses COMBINED typed ids — "user:alice", "doc:123" — but
+// every field carrying one is a plain Go string. Nothing stops a caller passing a
+// bare "alice", and the server cannot tell that apart from a legitimate id it has
+// simply never seen: it answers `allowed:false` and the caller reads a deny.
+//
+// That is a silent, wrong DENY, and it is the exact ambiguity behind the incident
+// this SDK's Zanzibar surface was rewritten to fix — the earlier model split ids
+// into object_type/object_id fields, and reconciling it against the live spec was
+// what surfaced how easy the untyped form is to get wrong.
+//
+// So the client checks before it asks. A missing type prefix is always a bug, and
+// an error naming it costs one round trip less than a false deny costs to debug.
+
+// ErrUntypedID reports an id that is missing its "type:" prefix. Build ids with
+// Object() / Subject() rather than concatenating strings.
+type ErrUntypedID struct {
+	Field string // which request field ("subject", "object", …)
+	Value string
+}
+
+func (e *ErrUntypedID) Error() string {
+	return "authclient: " + e.Field + " " + strconv.Quote(e.Value) +
+		` is not a typed Zanzibar id — it needs a "type:id" form such as "user:alice"; build it with Subject()/Object()`
+}
+
+// validTypedID reports whether s looks like "type:id" (and tolerates the userset
+// form "group:eng#member"). It deliberately does NOT validate the type or id
+// beyond non-emptiness — the server owns that vocabulary, not this client.
+func validTypedID(s string) bool {
+	typ, rest, ok := strings.Cut(s, ":")
+	return ok && typ != "" && rest != ""
+}
+
+// checkTypedIDs validates the combined-id fields of a check request.
+func (r CheckPermissionRequest) checkTypedIDs() error {
+	if !validTypedID(r.Subject) {
+		return &ErrUntypedID{Field: "subject", Value: r.Subject}
+	}
+	if !validTypedID(r.Object) {
+		return &ErrUntypedID{Field: "object", Value: r.Object}
+	}
+	return nil
 }

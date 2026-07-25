@@ -12,6 +12,7 @@ package authclient
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -264,5 +265,93 @@ func TestUserAgentCarriesVersion(t *testing.T) {
 	// using it. An earlier release named one particular consumer.
 	if !strings.HasPrefix(ua, "ab0t-auth-sdk-go/") {
 		t.Errorf("User-Agent %q should identify this SDK, not a specific consumer", ua)
+	}
+}
+
+// ---- Typed-id validation (PMM finding P-2) ----
+
+// TestZanzibarCheck_RejectsUntypedIDs pins the guard against the failure this SDK's
+// Zanzibar surface was rewritten to fix.
+//
+// Every combined id is a plain Go string, so nothing in the type system stops a
+// caller passing "alice" where "user:alice" is meant. The server cannot tell that
+// apart from an id it has simply never seen — it answers allowed:false, and the
+// caller reads a legitimate DENY. A silent wrong deny is expensive to debug and
+// indistinguishable from a real authorization decision.
+func TestZanzibarCheck_RejectsUntypedIDs(t *testing.T) {
+	var rec recorder
+	c := serve(t, &rec, 200, `{"allowed":true}`)
+
+	for name, req := range map[string]CheckPermissionRequest{
+		"bare subject":  {Subject: "alice", Permission: "view", Object: Object("doc", "1")},
+		"bare object":   {Subject: Subject("user", "alice"), Permission: "view", Object: "doc1"},
+		"empty subject": {Subject: "", Permission: "view", Object: Object("doc", "1")},
+		"empty type":    {Subject: ":alice", Permission: "view", Object: Object("doc", "1")},
+		"empty id":      {Subject: "user:", Permission: "view", Object: Object("doc", "1")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec.path = ""
+			_, err := c.ZanzibarCheck(context.Background(), "s1", req, "tok")
+			if err == nil {
+				t.Fatal("an untyped id must be an error, not a silent wrong DENY from the server")
+			}
+			var e *ErrUntypedID
+			if !errors.As(err, &e) {
+				t.Errorf("error is %T (%v), want *ErrUntypedID so callers can branch on it", err, err)
+			}
+			// It must fail BEFORE the request: a round trip that can only return
+			// the wrong answer is worse than no round trip.
+			if rec.path != "" {
+				t.Errorf("request was sent anyway (hit %s)", rec.path)
+			}
+		})
+	}
+}
+
+func TestZanzibarCheck_AcceptsValidTypedIDs(t *testing.T) {
+	var rec recorder
+	c := serve(t, &rec, 200, `{"allowed":true}`)
+
+	for name, req := range map[string]CheckPermissionRequest{
+		"plain":           {Subject: Subject("user", "alice"), Permission: "view", Object: Object("doc", "1")},
+		"userset subject": {Subject: Subject("group", "eng") + "#member", Permission: "view", Object: Object("doc", "1")},
+		"id containing :": {Subject: Subject("user", "a:b"), Permission: "view", Object: Object("doc", "1")},
+		"uuid-ish id":     {Subject: Subject("user", "0d9f-4c1e"), Permission: "view", Object: Object("doc", "x/y")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ok, err := c.ZanzibarCheck(context.Background(), "s1", req, "tok")
+			if err != nil {
+				t.Fatalf("valid typed ids rejected: %v", err)
+			}
+			if !ok.Allowed {
+				t.Error("response not decoded")
+			}
+		})
+	}
+}
+
+// TestZanzibarCheckBulk_NamesTheOffendingCheck — a bulk request is built in a loop,
+// so "check 7 is wrong" is the difference between a one-minute fix and an afternoon.
+func TestZanzibarCheckBulk_NamesTheOffendingCheck(t *testing.T) {
+	var rec recorder
+	c := serve(t, &rec, 200, `[]`)
+
+	_, err := c.ZanzibarCheckBulk(context.Background(), "s1", BulkCheckRequest{Checks: []CheckPermissionRequest{
+		{Subject: Subject("user", "a"), Permission: "view", Object: Object("doc", "1")},
+		{Subject: Subject("user", "b"), Permission: "view", Object: Object("doc", "2")},
+		{Subject: "c", Permission: "view", Object: Object("doc", "3")}, // index 2 is bad
+	}}, "tok")
+	if err == nil {
+		t.Fatal("an untyped id anywhere in a bulk request must be an error")
+	}
+	if !strings.Contains(err.Error(), "check 2") {
+		t.Errorf("error %q does not name the offending index", err)
+	}
+	var e *ErrUntypedID
+	if !errors.As(err, &e) {
+		t.Error("the wrapped error must still unwrap to *ErrUntypedID")
+	}
+	if rec.path != "" {
+		t.Error("bulk request was sent despite a bad element")
 	}
 }
