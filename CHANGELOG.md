@@ -4,6 +4,30 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-07-25
+
+### Added
+- **`Client.Store(storeID, token)` — the ergonomic Zanzibar surface.** The raw methods
+  mirror the HTTP API exactly, which is the right foundation but makes a one-line
+  question cost six lines of ceremony and a repeated store id and token on every
+  call. `ZanzibarStore` binds them once and exposes the questions people actually
+  ask: `Can`, `CanAll`, `CanAny`, `Why`, `WhatCan` ("which docs can alice view" —
+  the filtered index page), `WhoCan` ("who can view this" — the sharing dialog,
+  groups expanded), `RelationsOn`, `Relate`, `Unrelate`, plus `*ID` variants and a
+  `Check(...)` batch builder and `As(token)` for per-request tokens.
+
+  Types are separate arguments (`"user", "alice"`) rather than something the caller
+  concatenates, because a mistyped combined id produces a silent DENY, not an error.
+
+  Every boolean fails closed: an error is false, an **empty batch is false**
+  ("nothing was asked" is not "everything is permitted"), and a bulk response whose
+  length does not match the request is an error rather than a guess. `Relate` and
+  `Unrelate` treat `success:false` as an error even on a 200 — a write reported as
+  refused is not a write.
+
+  It is a layer over the raw methods, never a replacement: everything the service
+  can do stays reachable.
+
 ## [0.2.0] — 2026-07-25
 
 ### Added
@@ -86,5 +110,6 @@ request with an untyped id now returns `*ErrUntypedID` without sending it. If yo
 were relying on that request going out, it could only ever have come back
 `allowed:false` — the guard turns a silent wrong deny into a clear error.
 
+[0.3.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.1.0

@@ -108,18 +108,52 @@ The service exposes **two** authorization systems and they are easy to cross-wir
 | Question | "does this user hold this permission?" | "does this subject have this relation to this object?" |
 | Use for | coarse capabilities — `admin.write`, `users.read` | per-object sharing — "who can view *this document*" |
 
-Build Zanzibar ids with the `Object()` / `Subject()` helpers rather than concatenating strings:
-
-```go
-ok, err := client.ZanzibarCheck(ctx, storeID, auth.CheckPermissionRequest{
-    Subject:    auth.Subject("user", "alice"),
-    Permission: "view",
-    Object:     auth.Object("document", "123"),
-}, callerToken)
-```
-
 For most route gating you want `Authorize`. Reach for Zanzibar when the answer depends on a
 *relationship to a specific object*.
+
+## Zanzibar without the ceremony
+
+The raw methods mirror the HTTP API exactly — every operation reachable, every type matching the
+wire. That is the right foundation, but it is not what using it should feel like. Bind the store
+once and ask questions:
+
+```go
+store := client.Store(storeID, callerToken)
+
+// Can alice view this document?
+ok, err := store.Can(ctx, "user", "alice", "view", "doc", "123")
+
+// Make her the owner.
+err = store.Relate(ctx, "user", "alice", "owner", "doc", "123")
+
+// Which documents can she view?  (the query behind a filtered index page)
+docs, err := store.WhatCan(ctx, auth.Subject("user", "alice"), "view", "doc")
+
+// Who can view this one?  (the query behind a sharing dialog — groups expanded)
+users, err := store.WhoCan(ctx, auth.Object("doc", "123"), "view")
+
+// Several questions, one round trip.
+ok, err = store.CanAll(ctx,
+    auth.Check("user", "alice", "view", "doc", "1"),
+    auth.Check("user", "alice", "view", "doc", "2"),
+)
+
+// Why did it decide that?  (reason + the relationship path it followed)
+res, err := store.Why(ctx, auth.Subject("user", "alice"), "view", auth.Object("doc", "123"))
+```
+
+Types are separate arguments on purpose. `("user", "alice")` is impossible to get wrong;
+`"user:alice"` is easy to get wrong, and getting it wrong produces a silent **deny** rather than an
+error. Use the `*ID` variants (`CanID`, `RelateID`, `UnrelateID`) when you already hold a combined
+id.
+
+Every boolean here **fails closed**: an error is `false`, an empty batch is `false` (nothing asked
+is not everything permitted), and a bulk response with the wrong number of results is an error
+rather than a guess. `Relate` treats `success:false` as an error even on a 200, because a write that
+is reported as refused is not a write.
+
+This layer is over the raw methods, never instead of them — `ZanzibarCheck`, `WriteRelationships`
+and the rest keep working unchanged, so anything the service can do stays reachable.
 
 ## Transport and resilience
 
