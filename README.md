@@ -18,6 +18,22 @@ go get github.com/ab0t-com/auth-sdk-go
 
 Requires Go 1.23+.
 
+## Command line
+
+```bash
+go install github.com/ab0t-com/auth-sdk-go/cmd/ab0t-auth@latest
+
+ab0t-auth login --key ab0t_sk_…      # or --email you@example.com
+ab0t-auth whoami
+ab0t-auth can user:alice view doc:123 --store my-store
+ab0t-auth doctor                     # why isn't it working?
+```
+
+Same zero dependencies as the library. `NO_COLOR` is honoured, `--json` works on
+every command, colour is never the only signal, and exit codes carry the answer
+(`0` allowed, `2` denied) so `if ab0t-auth can …; then` works in a script.
+`ab0t-auth help` lists everything.
+
 ## Quick start
 
 ```go

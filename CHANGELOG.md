@@ -4,6 +4,49 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-07-25
+
+### Added
+- **`ab0t-auth` — a command-line client.**
+
+  ```bash
+  go install github.com/ab0t-com/auth-sdk-go/cmd/ab0t-auth@latest
+  ab0t-auth doctor
+  ab0t-auth can user:alice view doc:123 --store my-store
+  ```
+
+  Answers from a terminal the questions that otherwise need a Go program: is this
+  token valid, who am I, can alice read this document and why not, is the service
+  up, and what is wrong with my configuration.
+
+  **Still zero dependencies.** A CLI would normally reach for cobra; that would add
+  cobra and pflag to this module and break the stdlib-only guarantee for every
+  consumer, none of whom asked for a CLI. Subcommand dispatch is written against
+  the stdlib `flag` package instead, so `go install` pulls exactly nothing else.
+
+  **Accessibility is built in, not bolted on**, and each property has a test
+  because a regression in any of them is invisible to a sighted developer at an
+  interactive terminal:
+  - `NO_COLOR` (any non-empty value) means **no ANSI at all**, not less colour;
+    a non-TTY, `TERM=dumb` and `--json` each disable colour too.
+  - **Colour is never the only signal** — strip every escape sequence and the
+    output is byte-identical to the plain rendering. Verified by a test.
+  - `--json` on every command, with the same facts as the text output.
+  - Data on stdout, diagnostics on stderr, so `cmd --json > out.json` yields a
+    parseable file and the human still sees the errors.
+  - No spinners, progress bars, cursor movement or box drawing anywhere.
+  - Every prompt has a non-interactive equivalent; a prompt that would block in CI
+    is skipped rather than hanging.
+  - Exit codes: `0` ok/ALLOWED, `1` error, `2` DENIED, `3` no credential — so
+    `if ab0t-auth can …; then` works in a script.
+
+  Credential storage follows the house pattern: a JSON file at **0600 inside a
+  0700 directory**, written atomically, resolved `--token` → `$AB0T_AUTH_TOKEN` →
+  `$AUTH_SERVICE_KEY` → file. No command ever prints a credential in full.
+
+  `doctor` reports every check rather than stopping at the first failure — the
+  second failure is often what explains the first.
+
 ## [0.5.0] — 2026-07-25
 
 ### Added
@@ -162,6 +205,7 @@ request with an untyped id now returns `*ErrUntypedID` without sending it. If yo
 were relying on that request going out, it could only ever have come back
 `allowed:false` — the guard turns a silent wrong deny into a clear error.
 
+[0.6.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.6.0
 [0.5.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.3.0
