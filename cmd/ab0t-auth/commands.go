@@ -79,6 +79,9 @@ var commands = []command{
 	{"grant", "Write a relationship tuple", "grant <subject> <relation> <object> --store STORE", storeFlags, cmdGrant},
 	{"revoke", "Remove a relationship tuple", "revoke <subject> <relation> <object> --store STORE", storeFlags, cmdRevoke},
 	{"revoke-all", "Remove every relationship on an object (offboarding)", "revoke-all <object> --store STORE [--dry-run]", storeFlags, cmdRevokeAll},
+	{"profile", "List, switch and remove tenant profiles", "profile [list|use <name>|remove <name>]", nil, cmdProfile},
+	{"orgs", "List the organizations this credential belongs to", "orgs", nil, cmdOrgs},
+	{"org-tree", "Show an organization's hierarchy: sub-orgs, teams, users", "org-tree <org-id>", nil, cmdOrgTree},
 	{"about", "Licence, support, source and the Go SDK", "about", nil, cmdAbout},
 	{"health", "Check that the auth service is reachable and healthy", "health", nil, cmdHealth},
 	{"doctor", "Diagnose configuration and connectivity", "doctor", nil, cmdDoctor},
@@ -114,11 +117,11 @@ func cmdLogin(ctx context.Context, e *env, opts any, args []string) error {
 		if !res.Valid {
 			return fmt.Errorf("the auth service rejected that key: %s", res.Reason)
 		}
-		if err := saveCredential(&storedFile{Token: key, AuthService: e.g.server, OrgID: res.OrgID}); err != nil {
+		if err := SaveProfile(&Profile{Name: e.profileName(), Token: key, AuthService: e.g.server, OrgID: res.OrgID}); err != nil {
 			return err
 		}
-		return e.out.emit(map[string]any{"saved": true, "kind": "api-key", "path": credPath(), "org_id": res.OrgID},
-			func() { e.out.ok("stored API key " + mask(key) + " in " + credPath()) })
+		return e.out.emit(map[string]any{"saved": true, "kind": "api-key", "path": profilePath(e.profileName()), "org_id": res.OrgID},
+			func() { e.out.ok("stored API key " + mask(key) + " in " + profilePath(e.profileName())) })
 	}
 
 	if email == "" {
@@ -146,11 +149,11 @@ func cmdLogin(ctx context.Context, e *env, opts any, args []string) error {
 	if ts.AccessToken == "" {
 		return errors.New("the auth service returned no access token")
 	}
-	if err := saveCredential(&storedFile{Token: ts.AccessToken, AuthService: e.g.server, OrgID: org, Email: email}); err != nil {
+	if err := SaveProfile(&Profile{Name: e.profileName(), Token: ts.AccessToken, AuthService: e.g.server, OrgID: org, Email: email}); err != nil {
 		return err
 	}
-	return e.out.emit(map[string]any{"saved": true, "kind": "token", "path": credPath(), "email": email},
-		func() { e.out.ok("logged in as " + email + "; credential stored in " + credPath()) })
+	return e.out.emit(map[string]any{"saved": true, "kind": "token", "path": profilePath(e.profileName()), "email": email},
+		func() { e.out.ok("logged in as " + email + "; credential stored in " + profilePath(e.profileName())) })
 }
 
 func cmdLogout(_ context.Context, e *env, opts any, _ []string) error {
@@ -158,22 +161,22 @@ func cmdLogout(_ context.Context, e *env, opts any, _ []string) error {
 	// A prompt that blocks in CI is a hang, not a safeguard, so a non-TTY stdin
 	// proceeds and --yes/-y is always available.
 	if !opts.(*yesOpts).yes && isTerminal(os.Stdin) && !e.g.quiet {
-		fmt.Fprintf(os.Stderr, "Remove the stored credential at %s? Type 'yes' to confirm: ", credPath())
+		fmt.Fprintf(os.Stderr, "Remove the stored credential at %s? Type 'yes' to confirm: ", profilePath(e.profileName()))
 		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 		if strings.TrimSpace(line) != "yes" {
 			return errors.New("cancelled")
 		}
 	}
-	removed, err := deleteCredential()
+	removed, err := DeleteProfile(e.profileName())
 	if err != nil {
 		return err
 	}
-	return e.out.emit(map[string]any{"removed": removed, "path": credPath()}, func() {
+	return e.out.emit(map[string]any{"removed": removed, "path": profilePath(e.profileName())}, func() {
 		if removed {
-			e.out.ok("removed " + credPath())
+			e.out.ok("removed " + profilePath(e.profileName()))
 			return
 		}
-		e.out.printf("no stored credential at %s\n", credPath())
+		e.out.printf("no stored credential at %s\n", profilePath(e.profileName()))
 	})
 }
 
@@ -198,6 +201,7 @@ func cmdWhoami(ctx context.Context, e *env, opts any, _ []string) error {
 			[2]string{"org", actor.OrgID},
 			[2]string{"email", actor.Email},
 			[2]string{"credential", mask(e.cred.Value) + " (" + e.cred.Kind + ")"},
+			[2]string{"profile", e.cred.Profile},
 			[2]string{"source", e.cred.Source},
 		)
 		if len(actor.Permissions) > 0 {
@@ -421,7 +425,7 @@ func cmdDoctor(ctx context.Context, e *env, opts any, _ []string) error {
 
 	if msg, ok := checkPerms(); !ok {
 		add("credential file permissions", false, msg)
-	} else if e.cred.Source == credPath() {
+	} else if e.cred.Source == profilePath(e.profileName()) {
 		add("credential file permissions", true, "0600")
 	}
 
@@ -555,5 +559,149 @@ func cmdAbout(_ context.Context, e *env, _ any, _ []string) error {
 			[2]string{"dependencies", "none — standard library only"},
 			[2]string{"default service", auth.DefaultBaseURL},
 		)
+	})
+}
+
+// profileName is the tenant context this invocation is acting in.
+func (e *env) profileName() string { return CurrentProfileName(e.g.profile) }
+
+// ---- tenancy ----
+//
+// The service is multi-tenant by default: a user belongs to many organizations,
+// organizations nest via parent_id, and a session can be switched between them.
+// The CLI exposed none of that, so an operator had one identity for a product
+// with many — which is how a staging credential ends up running against
+// production without a single wrong command being typed.
+
+func cmdProfile(_ context.Context, e *env, _ any, args []string) error {
+	sub := "list"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+	switch sub {
+	case "list":
+		profs, err := ListProfiles()
+		if err != nil {
+			return err
+		}
+		cur := e.profileName()
+		type row struct {
+			Name    string `json:"name"`
+			Current bool   `json:"current"`
+			Org     string `json:"org_id,omitempty"`
+			Slug    string `json:"org_slug,omitempty"`
+			Service string `json:"auth_service,omitempty"`
+			Email   string `json:"email,omitempty"`
+		}
+		out := []row{}
+		for _, p := range profs {
+			out = append(out, row{p.Name, p.Name == cur, p.OrgID, p.OrgSlug, p.AuthService, p.Email})
+		}
+		return e.out.emit(map[string]any{"current": cur, "profiles": out}, func() {
+			if len(out) == 0 {
+				e.out.printf("no profiles yet — run 'ab0t-auth login' to create one\n")
+				return
+			}
+			for _, r := range out {
+				mark := "  "
+				if r.Current {
+					// A word, not only a colour: the active tenant must be
+					// unmistakable when piped, logged or read aloud.
+					mark = "* "
+				}
+				e.out.printf("%s%-20s %s %s\n", mark, r.Name, r.Org, r.Email)
+			}
+			e.out.printf("\n* = current\n")
+		})
+
+	case "use":
+		if len(args) < 2 {
+			return errors.New("usage: ab0t-auth profile use <name>")
+		}
+		if _, err := LoadProfile(args[1]); err != nil {
+			return fmt.Errorf("no profile named %q — run 'ab0t-auth profile list'", args[1])
+		}
+		if err := SetCurrentProfile(args[1]); err != nil {
+			return err
+		}
+		return e.out.emit(map[string]any{"current": sanitizeProfile(args[1])},
+			func() { e.out.ok("now using profile " + sanitizeProfile(args[1])) })
+
+	case "remove":
+		if len(args) < 2 {
+			return errors.New("usage: ab0t-auth profile remove <name>")
+		}
+		removed, err := DeleteProfile(args[1])
+		if err != nil {
+			return err
+		}
+		return e.out.emit(map[string]any{"removed": removed, "profile": sanitizeProfile(args[1])}, func() {
+			if removed {
+				e.out.ok("removed profile " + sanitizeProfile(args[1]))
+				return
+			}
+			e.out.printf("no profile named %s\n", sanitizeProfile(args[1]))
+		})
+	}
+	return fmt.Errorf("unknown subcommand %q: use list, use, or remove", sub)
+}
+
+func cmdOrgs(ctx context.Context, e *env, _ any, _ []string) error {
+	if !e.cred.Present() {
+		return errNoCredential
+	}
+	res, err := e.client().GetMyOrganizations(ctx, e.cred.Value)
+	if err != nil {
+		return err
+	}
+	return e.out.emit(map[string]any{"organizations": res, "count": len(res)}, func() {
+		if len(res) == 0 {
+			e.out.printf("this credential belongs to no organizations\n")
+			return
+		}
+		// Show the tenancy facts, not just names: the ROLE is what the caller
+		// can do here, PARENT is whether this org sits under another, and
+		// personal/default are why a user has several in the first place.
+		for _, o := range res {
+			marks := ""
+			if o.IsDefault {
+				marks += " [default]"
+			}
+			if o.IsPersonal {
+				marks += " [personal]"
+			}
+			if o.ParentID != "" {
+				marks += " [sub-org of " + o.ParentID + "]"
+			}
+			if o.WorkspaceType != "" {
+				marks += " [" + o.WorkspaceType + "]"
+			}
+			e.out.printf("%-28s %-14s %s%s\n", o.ID, o.Role, o.Name, marks)
+		}
+	})
+}
+
+func cmdOrgTree(ctx context.Context, e *env, _ any, args []string) error {
+	if err := needArgs(args, 1, "org-tree <org-id>"); err != nil {
+		return err
+	}
+	if !e.cred.Present() {
+		return errNoCredential
+	}
+	res, err := e.client().GetOrgHierarchy(ctx, args[0], e.cred.Value)
+	if err != nil {
+		return err
+	}
+	return e.out.emit(res, func() {
+		// Render the TREE, indented. Companies of companies are the point of this
+		// verb; a flat summary would hide the thing it exists to show.
+		res.WalkOrgTree(func(n *auth.OrgHierarchyResponse, depth int) {
+			if n.Organization == nil {
+				return
+			}
+			e.out.printf("%s%s  %s  (teams %d, users %d)\n",
+				strings.Repeat("  ", depth), n.Organization.Slug, n.Organization.ID,
+				n.TeamCount, n.UserCount)
+		})
 	})
 }

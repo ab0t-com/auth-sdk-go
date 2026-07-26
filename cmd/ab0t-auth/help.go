@@ -309,6 +309,72 @@ nothing.`,
 		Next:    []string{"who-can <object> <permission>  — confirm the object is now empty", "what-can <subject> <permission> <type>  — if you are offboarding a person"},
 		SeeAlso: []string{"revoke", "who-can", "what-can"},
 	},
+	"profile": {
+		Purpose: `Manage TENANT PROFILES — one stored context per organization you work in.
+
+The service is multi-tenant by default: you belong to many organizations, they
+nest, and a session can be switched between them. One credential file for all of
+that is how a staging login ends up running against production an hour later —
+no wrong command is ever typed, there is simply one identity where there should
+have been several.
+
+Each profile holds its own credential, organization and auth service. Select one
+with --profile, $AB0T_PROFILE, or 'profile use'.`,
+		Example: `  $ ab0t-auth profile list
+  * acme-prod            org_01H8   ops@acme.com
+    acme-staging         org_01H9   ops@acme.com
+
+  * = current
+
+  $ ab0t-auth profile use acme-staging
+  OK now using profile acme-staging
+
+  $ ab0t-auth --profile acme-prod whoami     # one-off, without switching`,
+		Failures: [][2]string{
+			{"no profiles yet", "Run 'ab0t-auth login' — it creates the profile you are currently on."},
+			{"no profile named X", "Run 'ab0t-auth profile list' to see what exists."},
+			{"the wrong tenant is being used", "An environment variable beats the profile. Run 'whoami' — it prints the profile AND the source."},
+		},
+		Next:    []string{"whoami  — confirm which tenant you are now acting in", "orgs  — the organizations this credential can reach"},
+		SeeAlso: []string{"login", "whoami", "orgs"},
+	},
+	"orgs": {
+		Purpose: `List the organizations this credential belongs to, with your role in each.
+
+A user is normally in several: a personal one, their company, and possibly
+sub-organizations of it. The markers tell you which is which — [default] is the
+one you get without asking, [personal] is your own, and [sub-org of …] means this
+company sits underneath another.`,
+		Example: `  $ ab0t-auth orgs
+  org_01H8XK                   admin          Acme Corp [default]
+  org_01H9YZ                   member         Acme Europe [sub-org of org_01H8XK]
+  org_01HAAA                   owner          Personal [personal]`,
+		Failures: [][2]string{
+			{"belongs to no organizations", "A service key is often scoped to exactly one org and may list none. Use 'whoami' to see its org."},
+			{"an org you expected is missing", "You are not a member of it with this credential. Check with 'profile list' that you are on the right tenant."},
+		},
+		Next:    []string{"org-tree <org-id>  — see the sub-organizations, teams and users beneath one", "profile use <name>  — switch to a different tenant"},
+		SeeAlso: []string{"org-tree", "profile", "whoami"},
+	},
+	"org-tree": {
+		Purpose: `Show an organization's HIERARCHY: its sub-organizations, teams and user counts.
+
+Organizations nest. A holding company owns operating companies, which own teams,
+which contain users — and access can be modelled at any level. This prints the
+tree so you can see the shape before reasoning about who can reach what.`,
+		Example: `  $ ab0t-auth org-tree org_01H8XK
+  acme        org_01H8XK  (teams 4, users 37)
+    acme-eu   org_01H9YZ  (teams 2, users 11)
+    acme-apac org_01HBBB  (teams 1, users 6)
+
+Indentation is the nesting. Use --json for the full tree including team members.`,
+		Failures: [][2]string{
+			{"404 / not found", "Wrong org id, or this credential cannot see that organization. Run 'orgs' for ids you can reach."},
+			{"only one line printed", "That organization has no sub-organizations. A real answer."},
+		},
+		Next:    []string{"who-can <object> <permission>  — who can reach a specific thing", "orgs  — the other organizations you belong to"},
+		SeeAlso: []string{"orgs", "who-can", "what-can"},
+	},
 	"about": {
 		Purpose: `Licence, source, support channels, and the fact that this CLI is a thin
 layer over an importable Go SDK.

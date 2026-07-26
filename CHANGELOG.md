@@ -4,6 +4,41 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] — 2026-07-26
+
+### Fixed — a silent contract bug in the org hierarchy
+
+- **`OrgHierarchyResponse` decoded to zero values.** The SDK declared it as
+  `{root, organizations}`; the service has never returned that shape. The real
+  contract is `{organization, teams, children, user_count, team_count}`, recursive
+  through `children` — which is how **companies of companies** are represented.
+  JSON decoding does not complain about names it does not recognise, so
+  `GetOrgHierarchy` returned an empty struct, silently, forever. The old test
+  asserted the wrong shape and therefore passed. Same class as the bulk-check bug
+  in v0.2.0; the reason `make drift` exists.
+  Added `OrgInfo`, `HierarchyTeam`, `HierarchyUser`, and `WalkOrgTree` for the
+  recursion every caller would otherwise write by hand.
+
+### Added — the CLI is multi-tenant now, because the service always was
+
+The service is multi-tenant by default: users belong to many organizations,
+organizations nest via `parent_id`, and a session can be switched between them.
+The CLI stored **one flat credential file** — a single-tenant store for a
+multi-tenant product. That is how a staging login ends up running against
+production an hour later without a single wrong command being typed.
+
+- **Tenant profiles.** `$XDG_CONFIG_HOME/ab0t/auth-sdk-go/profiles/<name>.json`,
+  one file per tenant, 0600 inside 0700, written atomically, namespaced per tool
+  so several ab0t clients can share the config root. Each profile carries its
+  credential *and its tenancy* — org, slug, service — which is what lets `whoami`
+  answer "which tenant am I in" rather than only "who am I". Matches the house
+  convention (`connect-cli`'s `connect-auth`: login, API keys, dev/prod, headless).
+  A legacy `auth.json` is imported as `default` and renamed aside, never deleted.
+- **`profile`** — list, use, remove; plus a global `--profile` and `$AB0T_PROFILE`.
+- **`orgs`** — organizations this credential belongs to, with your role and
+  `[default]` / `[personal]` / `[sub-org of …]` / `[workspace]` markers.
+- **`org-tree`** — the organization hierarchy as an indented tree.
+
 ## [0.8.0] — 2026-07-26
 
 ### Added — from 105 further customer journeys (15 per hat, all automated)
@@ -280,6 +315,7 @@ request with an untyped id now returns `*ErrUntypedID` without sending it. If yo
 were relying on that request going out, it could only ever have come back
 `allowed:false` — the guard turns a silent wrong deny into a clear error.
 
+[0.9.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.9.0
 [0.8.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.8.0
 [0.7.1]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.7.1
 [0.7.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.7.0

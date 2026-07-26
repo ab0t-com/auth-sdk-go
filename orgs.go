@@ -46,10 +46,82 @@ type OrgHierarchyNode struct {
 	Children []OrgHierarchyNode `json:"children,omitempty"`
 }
 
+// OrgInfo describes one organization in a hierarchy response.
+//
+// ParentID is the nesting primitive: organizations form a TREE. A company can own
+// sub-companies, each with their own teams and users. Nothing in this SDK exposed
+// that before, so consumers modelled a flat tenancy the service never had.
+type OrgInfo struct {
+	ID       string `json:"id,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Slug     string `json:"slug,omitempty"`
+	ParentID string `json:"parent_id,omitempty"`
+	Domain   string `json:"domain,omitempty"`
+	Status   string `json:"status,omitempty"`
+
+	BillingType string `json:"billing_type,omitempty"`
+	Industry    string `json:"industry,omitempty"`
+	Size        string `json:"size,omitempty"`
+	Timezone    string `json:"timezone,omitempty"`
+	Website     string `json:"website,omitempty"`
+	LogoURL     string `json:"logo_url,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
+}
+
 // OrgHierarchyResponse is the result of GET /organizations/{org_id}/hierarchy.
+//
+// CONTRACT NOTE: an earlier release of this SDK declared this as
+// {root, organizations}, which no version of the service has ever returned — the
+// spec defines {organization, teams, children, user_count, team_count} with
+// `organization` required. Every field would have decoded to its zero value, and
+// silently: JSON decoding does not complain about names it does not recognise, so
+// a caller got an empty tree rather than an error. This is the same class of
+// defect as the bulk-check mismatch fixed in v0.2.0, and the reason `make drift`
+// exists.
+//
+// Children are the SUB-ORGANIZATIONS: this is how companies-of-companies are
+// represented on the wire.
 type OrgHierarchyResponse struct {
-	Root          *OrgHierarchyNode  `json:"root,omitempty"`
-	Organizations []OrgHierarchyNode `json:"organizations,omitempty"`
+	Organization *OrgInfo               `json:"organization"`
+	Teams        []HierarchyTeam        `json:"teams,omitempty"`
+	Children     []OrgHierarchyResponse `json:"children,omitempty"`
+	UserCount    int                    `json:"user_count,omitempty"`
+	TeamCount    int                    `json:"team_count,omitempty"`
+}
+
+// HierarchyTeam is one team inside an organization in a hierarchy response.
+type HierarchyTeam struct {
+	ID      string          `json:"id,omitempty"`
+	Type    string          `json:"type,omitempty"`
+	Members []HierarchyUser `json:"members,omitempty"`
+}
+
+// HierarchyUser is one user inside a team in a hierarchy response.
+type HierarchyUser struct {
+	ID   string `json:"id,omitempty"`
+	Type string `json:"type,omitempty"`
+	Role string `json:"role,omitempty"`
+}
+
+// WalkOrgTree visits every organization in the hierarchy depth-first, including
+// the root, calling fn with the node and its depth.
+//
+// Provided because "how many companies are under this one" and "flatten the tree
+// for an audit" are the two things every caller does with this response, and both
+// are recursive — which is exactly the code people get subtly wrong.
+func (r *OrgHierarchyResponse) WalkOrgTree(fn func(node *OrgHierarchyResponse, depth int)) {
+	var walk func(*OrgHierarchyResponse, int)
+	walk = func(n *OrgHierarchyResponse, d int) {
+		if n == nil {
+			return
+		}
+		fn(n, d)
+		for i := range n.Children {
+			walk(&n.Children[i], d+1)
+		}
+	}
+	walk(r, 0)
 }
 
 // OrgMember is one organization membership entry.

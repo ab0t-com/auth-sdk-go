@@ -130,7 +130,16 @@ func TestOrganizationLifecycle(t *testing.T) {
 		case r.Method == "DELETE" && r.URL.Path == "/organizations/org1":
 			writeJSON(w, 200, MessageResponse{Message: "deleted"})
 		case r.URL.Path == "/organizations/org1/hierarchy":
-			writeJSON(w, 200, OrgHierarchyResponse{Organizations: []OrgHierarchyNode{{ID: "org1"}}})
+			// The real contract: {organization, teams, children, counts}. The
+			// old test asserted a shape the service never returns, so it passed
+			// while the SDK could only ever have decoded zeros.
+			writeJSON(w, 200, OrgHierarchyResponse{
+				Organization: &OrgInfo{ID: "org1", Slug: "acme"},
+				TeamCount:    1, UserCount: 2,
+				Children: []OrgHierarchyResponse{{
+					Organization: &OrgInfo{ID: "org2", Slug: "acme-eu", ParentID: "org1"},
+				}},
+			})
 		default:
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 		}
@@ -147,8 +156,28 @@ func TestOrganizationLifecycle(t *testing.T) {
 		t.Fatalf("DeleteOrganization: %v", err)
 	}
 	h, err := c.GetOrgHierarchy(context.Background(), "org1", "tok")
-	if err != nil || len(h.Organizations) != 1 {
+	if err != nil || h.Organization == nil || h.Organization.ID != "org1" {
 		t.Fatalf("GetOrgHierarchy: %v %+v", err, h)
+	}
+	if h.TeamCount != 1 || h.UserCount != 2 {
+		t.Errorf("counts not decoded: teams=%d users=%d", h.TeamCount, h.UserCount)
+	}
+	// Companies of companies: the child must decode, and carry its parent link.
+	if len(h.Children) != 1 || h.Children[0].Organization.ParentID != "org1" {
+		t.Fatalf("sub-organization not decoded: %+v", h.Children)
+	}
+	// WalkOrgTree must visit root and children, in order, with depth.
+	var seen []string
+	var depths []int
+	h.WalkOrgTree(func(n *OrgHierarchyResponse, d int) {
+		seen = append(seen, n.Organization.ID)
+		depths = append(depths, d)
+	})
+	if len(seen) != 2 || seen[0] != "org1" || seen[1] != "org2" {
+		t.Errorf("WalkOrgTree visited %v, want [org1 org2]", seen)
+	}
+	if depths[0] != 0 || depths[1] != 1 {
+		t.Errorf("WalkOrgTree depths = %v, want [0 1]", depths)
 	}
 }
 

@@ -1,19 +1,51 @@
 package main
 
-// store.go — credential storage.
+// store.go — profile-aware, multi-tenant credential and context storage.
 //
-// Follows the house pattern set by the `lc` CLI (see the ticket's
-// evidence/house_cli_inventory.txt): a JSON file at mode 0600 inside a 0700
-// directory, resolved through a flag -> environment -> file precedence chain.
+// WHY THIS IS PROFILES AND NOT ONE FILE
 //
-// Two departures, both deliberate:
+// This SDK is the entry point for SaaS companies on the ab0t mesh, and the
+// service is multi-tenant BY DEFAULT: a user belongs to many organizations
+// (`/users/me/organizations`), organizations nest (`Organization.parent_id`),
+// and a session can be moved between them (`/auth/switch-organization`).
 //
-//   - the path is org-neutral and XDG-aware (os.UserConfigDir, so
-//     ~/.config/ab0t/auth.json and the right thing on macOS/Windows), because
-//     this CLI belongs to the auth service, not to one product that uses it;
-//   - the file is re-chmodded to 0600 on every write even when it already
-//     existed, because a file created once with a loose umask stays loose
-//     forever otherwise, and nothing would ever tell you.
+// The previous layout was a single flat `auth.json` holding one token. That is a
+// single-tenant store for a multi-tenant product, and the failure it produces is
+// the quiet kind: an operator logs into staging, forgets, and runs a revoke
+// against production an hour later. There is no wrong command in that sequence —
+// only one identity where there should have been several.
+//
+// So: NAMED PROFILES, one file per tenant context, plus a pointer to the current
+// one. This matches the house convention — `connect-cli` ships a `connect-auth`
+// skill covering exactly "login, API keys, dev/prod, headless" — and it is the
+// ordinary shape for multi-tenant tooling (aws profiles, kubectl contexts,
+// gcloud configurations).
+//
+// LAYOUT
+//
+//	$XDG_CONFIG_HOME/ab0t/auth-sdk-go/        (0700)
+//	  config.json                             (0600)  { "current_profile": "acme-prod" }
+//	  profiles/                               (0700)
+//	    acme-prod.json                        (0600)  one tenant context
+//	    acme-dev.json                         (0600)
+//
+// Namespaced under a per-tool directory (`auth-sdk-go/`) rather than dumped at
+// the root of `ab0t/`, so several ab0t tools can share the config root without
+// colliding — the same reason the mesh's other clients do it.
+//
+// DATA-ENGINEERING PROPERTIES, deliberately
+//
+//   - One file per tenant. A profile can be copied, diffed, deleted or handed to
+//     a colleague without touching any other tenant's state.
+//   - Writes are atomic (temp + rename): an interrupted save cannot leave a
+//     truncated file that then fails to parse on every subsequent run.
+//   - 0600 inside 0700, re-asserted on every write — a directory created once
+//     under a loose umask otherwise stays loose forever and nothing tells you.
+//   - The token is the only secret; everything else (org, slug, store, service)
+//     is context, and is what makes `whoami` able to answer "which tenant am I
+//     in" rather than only "who am I".
+//   - Legacy `auth.json` is imported as the profile `default` on first use, so
+//     nobody is logged out by an upgrade.
 
 import (
 	"encoding/json"
@@ -21,32 +53,46 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 )
 
+const legacyFile = "auth.json"
+
 // Credential is a resolved credential and where it came from. The source matters:
-// "why is it using the wrong token" is a top support question, and the answer is
-// almost always that an environment variable is shadowing the stored one.
+// "why is it using the wrong tenant" is a top support question and the answer is
+// almost always an environment variable shadowing the selected profile.
 type Credential struct {
-	Value  string `json:"-"` // never serialised into output
-	Source string `json:"source"`
-	Kind   string `json:"kind"` // "api-key" or "token"
+	Value   string `json:"-"` // never serialised into output
+	Source  string `json:"source"`
+	Kind    string `json:"kind"`    // "api-key" or "token"
+	Profile string `json:"profile"` // which tenant context this came from
 }
 
 func (c Credential) Present() bool { return c.Value != "" }
 
-// storedFile is what lands on disk. The token is stored in plain text at 0600,
-// matching the house CLI. That is a deliberate, stated trade-off rather than an
-// oversight: an OS keyring would need a dependency in a module whose defining
-// property is having none, and 0600 is the same protection every other CLI in
-// this org gives the same class of secret.
-type storedFile struct {
+// Profile is one tenant context: a credential plus the tenancy it belongs to.
+//
+// OrgID/OrgSlug/Store are not decoration — they are what lets the tool say which
+// company you are acting inside, which is the thing a single flat file could
+// never answer.
+type Profile struct {
+	Name        string    `json:"name"`
 	Token       string    `json:"token"`
 	AuthService string    `json:"auth_service,omitempty"`
 	OrgID       string    `json:"org_id,omitempty"`
+	OrgSlug     string    `json:"org_slug,omitempty"`
+	Store       string    `json:"store,omitempty"`
 	Email       string    `json:"email,omitempty"`
 	SavedAt     time.Time `json:"saved_at"`
 }
+
+type rootConfig struct {
+	CurrentProfile string `json:"current_profile"`
+}
+
+// ---- paths ----
 
 func configDir() string {
 	if v := os.Getenv("AB0T_CONFIG_DIR"); v != "" {
@@ -55,117 +101,238 @@ func configDir() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		home, _ := os.UserHomeDir()
-		return filepath.Join(home, ".config", "ab0t")
+		return filepath.Join(home, ".config", "ab0t", "auth-sdk-go")
 	}
-	return filepath.Join(dir, "ab0t")
+	return filepath.Join(dir, "ab0t", "auth-sdk-go")
 }
 
-func credPath() string { return filepath.Join(configDir(), "auth.json") }
+func profilesDir() string         { return filepath.Join(configDir(), "profiles") }
+func profilePath(n string) string { return filepath.Join(profilesDir(), sanitizeProfile(n)+".json") }
+func rootConfigPath() string      { return filepath.Join(configDir(), "config.json") }
+func legacyPath() string          { return filepath.Join(configDir(), legacyFile) }
+
+// sanitizeProfile keeps a profile name safe as a filename. A tenant slug comes
+// from outside, so it must never be able to escape the profiles directory.
+func sanitizeProfile(n string) string {
+	if n == "" {
+		return "default"
+	}
+	var b strings.Builder
+	for _, r := range n {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r + 32)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	s := strings.Trim(b.String(), "-")
+	if s == "" {
+		return "default"
+	}
+	return s
+}
 
 func kindOf(cred string) string {
-	if len(cred) >= 8 && cred[:8] == "ab0t_sk_" {
+	if strings.HasPrefix(cred, "ab0t_sk_") {
 		return "api-key"
 	}
 	return "token"
 }
 
-// resolveCredential applies the precedence chain. Order is the contract:
-// an explicit flag always wins, then the environment, then the stored file.
-// Anything else would make a one-off override impossible.
-func resolveCredential(flagVal string) Credential {
+// ---- profile selection ----
+
+// CurrentProfileName resolves which tenant context is active.
+// Precedence: --profile flag > $AB0T_PROFILE > config.json > "default".
+func CurrentProfileName(flagVal string) string {
 	if flagVal != "" {
-		return Credential{Value: flagVal, Source: "--token", Kind: kindOf(flagVal)}
+		return sanitizeProfile(flagVal)
 	}
-	for _, env := range []string{"AB0T_AUTH_TOKEN", "AUTH_SERVICE_KEY"} {
-		if v := os.Getenv(env); v != "" {
-			return Credential{Value: v, Source: "$" + env, Kind: kindOf(v)}
+	if v := os.Getenv("AB0T_PROFILE"); v != "" {
+		return sanitizeProfile(v)
+	}
+	if b, err := os.ReadFile(rootConfigPath()); err == nil {
+		var rc rootConfig
+		if json.Unmarshal(b, &rc) == nil && rc.CurrentProfile != "" {
+			return sanitizeProfile(rc.CurrentProfile)
 		}
 	}
-	if f, err := loadCredential(); err == nil && f.Token != "" {
-		return Credential{Value: f.Token, Source: credPath(), Kind: kindOf(f.Token)}
-	}
-	return Credential{}
+	return "default"
 }
 
-func loadCredential() (*storedFile, error) {
-	b, err := os.ReadFile(credPath())
+// SetCurrentProfile records the active tenant context.
+func SetCurrentProfile(name string) error {
+	if err := ensureDirs(); err != nil {
+		return err
+	}
+	return writeAtomic(rootConfigPath(), mustJSON(rootConfig{CurrentProfile: sanitizeProfile(name)}))
+}
+
+// ListProfiles returns every stored tenant context, sorted.
+func ListProfiles() ([]Profile, error) {
+	migrateLegacy()
+	entries, err := os.ReadDir(profilesDir())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []Profile
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		if p, err := LoadProfile(strings.TrimSuffix(e.Name(), ".json")); err == nil {
+			out = append(out, *p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func LoadProfile(name string) (*Profile, error) {
+	migrateLegacy()
+	b, err := os.ReadFile(profilePath(name))
 	if err != nil {
 		return nil, err
 	}
-	var f storedFile
-	if err := json.Unmarshal(b, &f); err != nil {
-		return nil, fmt.Errorf("%s is not valid JSON (delete it and log in again): %w", credPath(), err)
+	var p Profile
+	if err := json.Unmarshal(b, &p); err != nil {
+		return nil, fmt.Errorf("%s is not valid JSON (delete it and log in again): %w", profilePath(name), err)
 	}
-	return &f, nil
+	if p.Name == "" {
+		p.Name = sanitizeProfile(name)
+	}
+	return &p, nil
 }
 
-// saveCredential writes the file with restrictive permissions.
-//
-// The write is atomic (temp file + rename) so an interrupted save cannot leave a
-// truncated credential file that then fails to parse on every subsequent run.
-func saveCredential(f *storedFile) error {
-	dir := configDir()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+func SaveProfile(p *Profile) error {
+	if err := ensureDirs(); err != nil {
 		return err
 	}
-	// Re-assert directory perms: MkdirAll is a no-op on an existing directory, so
-	// a dir created earlier with a loose umask would otherwise stay loose.
-	if err := os.Chmod(dir, 0o700); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
+	p.Name = sanitizeProfile(p.Name)
+	p.SavedAt = time.Now().UTC()
+	return writeAtomic(profilePath(p.Name), mustJSON(p))
+}
 
-	f.SavedAt = time.Now().UTC()
-	b, err := json.MarshalIndent(f, "", "  ")
+func DeleteProfile(name string) (bool, error) {
+	err := os.Remove(profilePath(name))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// ---- credential resolution ----
+
+// resolveCredential applies the precedence chain. Order is the contract: an
+// explicit flag always wins, then the environment, then the selected profile.
+// Anything else would make a one-off override impossible.
+func resolveCredential(flagVal, profileFlag string) Credential {
+	if flagVal != "" {
+		return Credential{Value: flagVal, Source: "--token", Kind: kindOf(flagVal), Profile: "(flag)"}
+	}
+	for _, env := range []string{"AB0T_AUTH_TOKEN", "AUTH_SERVICE_KEY"} {
+		if v := os.Getenv(env); v != "" {
+			return Credential{Value: v, Source: "$" + env, Kind: kindOf(v), Profile: "(env)"}
+		}
+	}
+	name := CurrentProfileName(profileFlag)
+	if p, err := LoadProfile(name); err == nil && p.Token != "" {
+		return Credential{Value: p.Token, Source: profilePath(name), Kind: kindOf(p.Token), Profile: p.Name}
+	}
+	return Credential{Profile: name}
+}
+
+// ---- io helpers ----
+
+func ensureDirs() error {
+	for _, d := range []string{configDir(), profilesDir()} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			return err
+		}
+		// MkdirAll is a no-op on an existing directory, so a dir created earlier
+		// under a loose umask would otherwise stay loose.
+		if err := os.Chmod(d, 0o700); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func mustJSON(v any) []byte {
+	b, _ := json.MarshalIndent(v, "", "  ")
+	return append(b, '\n')
+}
+
+// writeAtomic writes via a temp file and rename, so an interrupted save cannot
+// leave a truncated credential file that fails to parse forever after.
+func writeAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {
 		return err
 	}
-
-	tmp, err := os.CreateTemp(dir, "auth-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName) // no-op after a successful rename
-
+	name := tmp.Name()
+	defer os.Remove(name)
 	if err := tmp.Chmod(0o600); err != nil {
 		tmp.Close()
 		return err
 	}
-	if _, err := tmp.Write(append(b, '\n')); err != nil {
+	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpName, credPath()); err != nil {
+	if err := os.Rename(name, path); err != nil {
 		return err
 	}
-	// Belt and braces: enforce 0600 even if the destination pre-existed.
-	return os.Chmod(credPath(), 0o600)
+	return os.Chmod(path, 0o600)
 }
 
-func deleteCredential() (bool, error) {
-	err := os.Remove(credPath())
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
+// migrateLegacy imports a pre-profiles auth.json as the "default" profile, so an
+// upgrade never silently logs anyone out. Runs at most once — the legacy file is
+// renamed aside rather than deleted, because destroying a credential during an
+// upgrade is not a recoverable mistake.
+func migrateLegacy() {
+	b, err := os.ReadFile(legacyPath())
 	if err != nil {
-		return false, err
+		return
 	}
-	return true, nil
+	var old struct {
+		Token       string `json:"token"`
+		AuthService string `json:"auth_service"`
+		OrgID       string `json:"org_id"`
+		Email       string `json:"email"`
+	}
+	if json.Unmarshal(b, &old) != nil || old.Token == "" {
+		return
+	}
+	if _, err := os.Stat(profilePath("default")); err == nil {
+		return // already migrated
+	}
+	_ = SaveProfile(&Profile{
+		Name: "default", Token: old.Token, AuthService: old.AuthService,
+		OrgID: old.OrgID, Email: old.Email,
+	})
+	_ = os.Rename(legacyPath(), legacyPath()+".migrated")
 }
 
-// checkPerms reports a credential file that is readable by anyone else. Worth
-// saying out loud rather than silently fixing: if the mode is wrong, something
-// changed it, and the user should know.
+// checkPerms reports a credential file readable by anyone else. Worth saying out
+// loud rather than silently fixing: if the mode is wrong, something changed it.
 func checkPerms() (string, bool) {
-	st, err := os.Stat(credPath())
+	name := CurrentProfileName("")
+	st, err := os.Stat(profilePath(name))
 	if err != nil {
 		return "", true
 	}
 	if m := st.Mode().Perm(); m&0o077 != 0 {
-		return fmt.Sprintf("%s is mode %04o — it is readable by other users on this machine", credPath(), m), false
+		return fmt.Sprintf("%s is mode %04o — readable by other users on this machine", profilePath(name), m), false
 	}
 	return "", true
 }
