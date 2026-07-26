@@ -110,6 +110,12 @@ func main() {
 }
 
 func run(args []string, stdout, stderr *os.File) int {
+	// Hoist leading global flags FIRST, before the help/version special cases:
+	// otherwise `ab0t-auth --json version` leaves `version` in a position those
+	// cases never inspect, and it falls through to lookup(), which does not know
+	// about it. Caught by the clean-room check at v0.7.0.
+	args = hoistLeadingFlags(args)
+
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 		// `help <verb>` must answer about THAT verb. Printing the generic page
 		// with exit 0 — which is what this did before the journey review — tells
@@ -130,6 +136,14 @@ func run(args []string, stdout, stderr *os.File) int {
 		return exitOK
 	}
 	if args[0] == "version" || args[0] == "--version" {
+		// --json is honoured here too: an agent pinning a version wants it
+		// machine-readable without special-casing this one command.
+		for _, a := range args[1:] {
+			if a == "--json" || a == "-json" {
+				fmt.Fprintf(stdout, "{\n  \"name\": \"ab0t-auth\",\n  \"version\": %q\n}\n", auth.Version)
+				return exitOK
+			}
+		}
 		fmt.Fprintf(stdout, "ab0t-auth %s\n", auth.Version)
 		return exitOK
 	}
@@ -139,12 +153,6 @@ func run(args []string, stdout, stderr *os.File) int {
 	// by the same person who built this — made exactly that mistake on its first
 	// run and got `unknown command "--server"`. If the author trips on it, a
 	// customer certainly will. Hoist any leading flags so either order works.
-	args = hoistLeadingFlags(args)
-	if len(args) == 0 {
-		usage(stdout, args)
-		return exitOK
-	}
-
 	name := args[0]
 	cmd := lookup(name)
 	if cmd == nil {

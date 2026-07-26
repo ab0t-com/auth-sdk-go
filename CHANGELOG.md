@@ -4,6 +4,17 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] — 2026-07-26
+
+### Fixed
+- `ab0t-auth --json version` and `--<flag> help <verb>` failed with
+  `unknown command`. Leading global flags were hoisted *after* the `help` and
+  `version` special cases, so those two never saw the reordered arguments. Found
+  by the clean-room check on v0.7.0 — the local build was fine, which is precisely
+  why that check exists.
+- `version` now honours `--json`, so an agent pinning a version does not have to
+  special-case the one command that spoke only prose.
+
 ## [0.7.0] — 2026-07-26
 
 ### Added — the CLI now behaves like an interactive support page
@@ -240,6 +251,7 @@ request with an untyped id now returns `*ErrUntypedID` without sending it. If yo
 were relying on that request going out, it could only ever have come back
 `allowed:false` — the guard turns a silent wrong deny into a clear error.
 
+[0.7.1]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.7.1
 [0.7.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.7.0
 [0.6.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.6.0
 [0.5.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.5.0
