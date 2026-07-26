@@ -301,6 +301,19 @@ the warnings from if the server ever ships them.
 
 `make drift-strict` exits non-zero on any disagreement, if you want it as a gate.
 
+## Documentation and skills
+
+| | |
+|---|---|
+| [`docs/USAGE.md`](docs/USAGE.md) | The cookbook — task-shaped recipes, install to troubleshooting |
+| [`docs/CLI.md`](docs/CLI.md) | Complete command and flag reference |
+| [`skills/auth-sdk-go-concepts`](skills/auth-sdk-go-concepts/SKILL.md) | The mental model: two authz systems, typed ids, tenancy, nested orgs |
+| [`skills/auth-sdk-go-cli`](skills/auth-sdk-go-cli/SKILL.md) | Operating the CLI |
+| [`skills/auth-sdk-go-integration`](skills/auth-sdk-go-integration/SKILL.md) | Wiring the Go library into a service |
+
+The `skills/` directory is agent-readable: point your coding agent at it and it can
+use this SDK without you explaining the model first.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.md) — report

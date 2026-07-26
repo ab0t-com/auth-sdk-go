@@ -4,6 +4,23 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] — 2026-07-26
+
+### Added — documentation and agent skills
+- **`docs/USAGE.md`** — the cookbook: install, first success, asking questions,
+  granting and revoking, access review, offboarding, tenants and environments,
+  organizations and hierarchy, gating an HTTP service, CI, agents, troubleshooting.
+- **`docs/CLI.md`** — complete command and flag reference, exit codes, the output
+  contract, and the on-disk storage layout.
+- **`skills/`** — three agent-readable skills following the house convention
+  (`skills/<name>/SKILL.md` with trigger-rich frontmatter, as used by `authsetup`
+  and `ab0t-quota-go`):
+  - `auth-sdk-go-concepts` — the mental model. The two authorization systems and
+    when to use which, typed ids, relation vs permission, stores and the
+    multi-tenant isolation decision, nested organizations, per-tenant hosted login.
+  - `auth-sdk-go-cli` — operating the CLI, by job rather than by verb.
+  - `auth-sdk-go-integration` — middleware, test doubles, observability, transport.
+
 ## [0.9.1] — 2026-07-26
 
 ### Added
@@ -334,6 +351,7 @@ request with an untyped id now returns `*ErrUntypedID` without sending it. If yo
 were relying on that request going out, it could only ever have come back
 `allowed:false` — the guard turns a silent wrong deny into a clear error.
 
+[0.9.2]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.9.2
 [0.9.1]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.9.1
 [0.9.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.9.0
 [0.8.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.8.0
