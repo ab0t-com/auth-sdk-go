@@ -335,7 +335,18 @@ func cmdHealth(ctx context.Context, e *env, opts any, _ []string) error {
 	if err != nil {
 		return err
 	}
-	return e.out.emit(h, func() { e.out.kv([2]string{"status", fmt.Sprint(h)}) })
+	// Print the fields, not the struct. `fmt.Sprint` on a *HealthCheckResponse
+	// rendered as "&{healthy  map[]}" — a Go pointer dump leaking into what is
+	// supposed to be the friendliest command in the tool.
+	status := h.Status
+	if status == "" {
+		status = "unknown"
+	}
+	pairs := [][2]string{{"status", status}}
+	if h.Version != "" {
+		pairs = append(pairs, [2]string{"version", h.Version})
+	}
+	return e.out.emit(h, func() { e.out.kv(pairs...) })
 }
 
 // cmdDoctor answers "why isn't it working" without a support ticket.

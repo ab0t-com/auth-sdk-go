@@ -19,6 +19,18 @@ service-account*.json
 # ── internal / not for public consumption ────────────────────────────────────
 # This repo is PUBLIC. Internal planning artefacts live in the private repos that
 # consume this SDK, never here.
+#
+# pmm/ is the user-journey product review: buyer-lifecycle analysis, a candid
+# register of every defect found with severities, and journeys written in terms of
+# how we currently fail each kind of customer. All of it is accurate and useful
+# INTERNALLY, and all of it reads as "here is everything wrong with our product"
+# to anyone evaluating us. The findings belong in the fixes, which ship; the
+# analysis that produced them does not.
+#
+# Deliberate call, not an oversight: the SOP (00) and the harness (03) would both
+# be defensible public artefacts on their own, but splitting a numbered set is
+# worse than keeping it whole. Revisit as a decision, not by accident.
+pmm/
 tickets/
 ticket/
 _internal/

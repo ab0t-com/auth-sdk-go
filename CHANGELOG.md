@@ -4,6 +4,41 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-07-26
+
+### Added — the CLI now behaves like an interactive support page
+
+A user-journey product review walked 28 customer journeys cold against the real
+binary. 20 of 28 stalled on the same class of defect: **the tool knew what the
+customer would want next and did not say it.** None of it was a missing feature —
+it was information already in the binary, withheld.
+
+- **Deep help for every verb, reachable both ways.** `help <verb>` and
+  `<verb> --help` now render the same document: what it's FOR, a worked example
+  **with real output**, the failures you will actually hit and what they mean, and
+  what people usually run next. Previously `help can` printed the generic
+  top-level page **and exited 0** — the customer asked one question, got a
+  different answer, and was told it succeeded.
+- **A common-commands surface.** The bare invocation now says what the tool is for
+  before what it can do, lists the ~10 things people actually do (ordered by when a
+  newcomer meets them, not alphabetically), and carries a four-step NEW HERE? path.
+  `doctor` is first, because stuck people do not read to the bottom of a list.
+- **Next-step hints.** After a command, at most two things people usually do next.
+  A DENIED now points at `why` — six journeys across four hats stalled on exactly
+  that. Hints go to **stderr**, and are silent under `--json` and `--quiet`: a
+  script did not ask for advice, and a hint must never contaminate a piped result.
+
+### Fixed
+
+- **Global flags now work before OR after the verb.** `ab0t-auth --server X health`
+  previously failed with `unknown command "--server"`. `git`, `docker` and
+  `kubectl` all accept the leading form. Found when the journey harness — written
+  by the same person who wrote the CLI — made exactly that mistake on its first run.
+- **A flag in command position** gets a message naming the real problem instead of
+  "unknown command", which sent people looking for a command that never existed.
+- **`health` printed a raw Go struct** (`status: &{healthy map[]}`) — a pointer
+  dump in the command recommended as the safe first thing to run.
+
 ## [0.6.0] — 2026-07-25
 
 ### Added
@@ -205,6 +240,7 @@ request with an untyped id now returns `*ErrUntypedID` without sending it. If yo
 were relying on that request going out, it could only ever have come back
 `allowed:false` — the guard turns a silent wrong deny into a clear error.
 
+[0.7.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.7.0
 [0.6.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.6.0
 [0.5.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.4.0

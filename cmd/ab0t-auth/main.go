@@ -36,6 +36,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -110,6 +111,21 @@ func main() {
 
 func run(args []string, stdout, stderr *os.File) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
+		// `help <verb>` must answer about THAT verb. Printing the generic page
+		// with exit 0 — which is what this did before the journey review — tells
+		// the customer their question succeeded while answering a different one.
+		if len(args) > 1 {
+			o := newOutput(stdout, stderr, false, false, false, false)
+			if lookup(args[1]) == nil {
+				o.errorf("unknown command %q", args[1])
+				if sg := suggest(args[1]); sg != "" {
+					o.hint("did you mean: ab0t-auth help " + sg)
+				}
+				return exitError
+			}
+			renderVerbHelp(stdout, args[1], o)
+			return exitOK
+		}
 		usage(stdout, args)
 		return exitOK
 	}
@@ -118,10 +134,30 @@ func run(args []string, stdout, stderr *os.File) int {
 		return exitOK
 	}
 
+	// Customers type `ab0t-auth --server X health`, because git, docker and kubectl
+	// all accept global flags before the subcommand. The journey harness — written
+	// by the same person who built this — made exactly that mistake on its first
+	// run and got `unknown command "--server"`. If the author trips on it, a
+	// customer certainly will. Hoist any leading flags so either order works.
+	args = hoistLeadingFlags(args)
+	if len(args) == 0 {
+		usage(stdout, args)
+		return exitOK
+	}
+
 	name := args[0]
 	cmd := lookup(name)
 	if cmd == nil {
 		o := newOutput(stdout, stderr, false, false, false, false)
+		if strings.HasPrefix(name, "-") {
+			// Distinguish "you used a flag we do not have" from "you put a flag
+			// where a command goes" — they need different corrections.
+			o.errorf("%q is a flag, not a command", name)
+			o.hint("global flags work before or after the command, but a command is required:")
+			o.hint("  ab0t-auth <command> " + name + " …")
+			o.hint("run 'ab0t-auth help' to see the commands")
+			return exitError
+		}
 		o.errorf("unknown command %q", name)
 		if s := suggest(name); s != "" {
 			o.hint("did you mean: ab0t-auth " + s)
@@ -138,8 +174,11 @@ func run(args []string, stdout, stderr *os.File) int {
 	if cmd.flags != nil {
 		opts = cmd.flags(fs)
 	}
+	// Both `help <verb>` and `<verb> --help` resolve to the same deep document.
+	// Customers reach for both; neither is wrong, so neither may be worse.
 	fs.Usage = func() {
-		fmt.Fprintf(stderr, "%s\n\nUsage:\n  ab0t-auth %s\n\nFlags:\n", cmd.summary, cmd.usage)
+		renderVerbHelp(stderr, name, newOutput(stderr, stderr, false, false, false, false))
+		fmt.Fprintf(stderr, "\nFLAGS\n")
 		fs.PrintDefaults()
 	}
 	// Go's flag package stops parsing at the first non-flag argument, so
@@ -170,8 +209,10 @@ func run(args []string, stdout, stderr *os.File) int {
 
 	switch err := cmd.run(ctx, e, opts, append(positional, fs.Args()...)); {
 	case err == nil:
+		nextSteps(o, name, true)
 		return exitOK
 	case errors.Is(err, errDenied):
+		nextSteps(o, name, false)
 		return exitDenied
 	case errors.Is(err, errNoCredential):
 		o.errorf("no credential")
@@ -290,6 +331,51 @@ func partitionArgs(fs *flag.FlagSet, argv []string) (flags, positional []string)
 	return flags, positional
 }
 
+// hoistLeadingFlags moves any flags that appear BEFORE the subcommand to after it,
+// so `ab0t-auth --server X health` and `ab0t-auth health --server X` are the same
+// command. Without this the first form fails with "unknown command", which is both
+// wrong and unhelpful — the customer used a flag we do have, in a position we did
+// not accept.
+//
+// Whether a leading flag consumes the next argument is decided from the globals
+// FlagSet itself, so it stays correct as global flags are added.
+func hoistLeadingFlags(args []string) []string {
+	probe := flag.NewFlagSet("probe", flag.ContinueOnError)
+	probe.SetOutput(io.Discard)
+	(&globals{}).register(probe)
+	isBool := map[string]bool{}
+	probe.VisitAll(func(f *flag.Flag) {
+		if bf, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && bf.IsBoolFlag() {
+			isBool[f.Name] = true
+		}
+	})
+
+	var leading []string
+	i := 0
+	for i < len(args) && strings.HasPrefix(args[i], "-") && len(args[i]) > 1 {
+		name := strings.TrimLeft(args[i], "-")
+		if eq := strings.IndexByte(name, '='); eq >= 0 {
+			name = name[:eq]
+		}
+		// Only hoist flags we recognise. An unknown leading flag is left in place
+		// so it still produces an error rather than being silently swallowed.
+		if _, known := isBool[name]; !known && probe.Lookup(name) == nil {
+			break
+		}
+		leading = append(leading, args[i])
+		if !isBool[name] && !strings.Contains(args[i], "=") && i+1 < len(args) {
+			i++
+			leading = append(leading, args[i])
+		}
+		i++
+	}
+	if len(leading) == 0 || i >= len(args) {
+		return args
+	}
+	out := append([]string{args[i]}, args[i+1:]...)
+	return append(out, leading...)
+}
+
 func lookup(name string) *command {
 	for i := range commands {
 		if commands[i].name == name {
@@ -299,14 +385,41 @@ func lookup(name string) *command {
 	return nil
 }
 
+// usage is the top-level page. It leads with WHAT THIS IS FOR and the ~10 things
+// people actually do — not an alphabetical verb list.
+//
+// The journey review (pmm/02, UJ-01) found the old page answered "what can it do"
+// and never "what is this for", so an evaluator who did not already know what an
+// authorization service was learned nothing and left. Ordering is the teaching: a
+// list sorted by name tells a first-time reader nothing about where to start.
 func usage(w *os.File, args []string) {
-	fmt.Fprintf(w, `ab0t-auth %s — command-line client for the ab0t Auth Service
+	fmt.Fprintf(w, `ab0t-auth %s — ask and answer authorization questions from the command line.
 
-Usage:
-  ab0t-auth <command> [flags]
+Use it to check whether someone may do something ("can user:alice view doc:123"),
+to see WHY that answer came back, to grant and revoke access, and to review who can
+reach what. It talks to the ab0t Auth Service.
 
-Commands:
+COMMON COMMANDS
 `, auth.Version)
+	cw := 0
+	for _, c := range commonCommands {
+		if len(c.cmd) > cw {
+			cw = len(c.cmd)
+		}
+	}
+	for _, c := range commonCommands {
+		fmt.Fprintf(w, "  %-*s  %s\n", cw, c.cmd, c.why)
+	}
+
+	fmt.Fprintf(w, "\nNEW HERE?\n")
+	fmt.Fprintf(w, "  1. ab0t-auth health              is the service up?  (no credential needed)\n")
+	fmt.Fprintf(w, "  2. ab0t-auth login --key …       store a credential\n")
+	fmt.Fprintf(w, "  3. ab0t-auth doctor              confirm everything is wired\n")
+	fmt.Fprintf(w, "  4. ab0t-auth can user:alice view doc:123 --store S    ask your first question\n")
+	fmt.Fprintf(w, "\n  Ids are typed: \"user:alice\", not \"alice\". A --store is the permissions\n")
+	fmt.Fprintf(w, "  database for your app; set $AB0T_ZANZIBAR_STORE to avoid repeating it.\n")
+
+	fmt.Fprintf(w, "\nALL COMMANDS\n")
 	width := 0
 	for _, c := range commands {
 		if len(c.name) > width {
@@ -316,29 +429,26 @@ Commands:
 	for _, c := range commands {
 		fmt.Fprintf(w, "  %-*s  %s\n", width, c.name, c.summary)
 	}
-	fmt.Fprintf(w, `
-Global flags (accepted by every command):
-  --server URL     auth service base URL (default: the production service)
-  --token VALUE    credential to use; overrides $AB0T_AUTH_TOKEN and the stored one
-  --json           emit JSON with a stable shape — use this in scripts
-  --quiet          suppress non-essential output
-  --no-color       disable colour (NO_COLOR=1 does the same)
-  --timeout DUR    overall request timeout (default 30s)
 
-Credential precedence:
+	fmt.Fprintf(w, `
+DEEP HELP
+  ab0t-auth help <verb>     purpose, worked example, failure modes, what's next
+  ab0t-auth <verb> --help   the same, plus the flag list
+
+GLOBAL FLAGS (every command)
+  --server URL   auth service base URL        --json      machine-readable output
+  --token VALUE  credential to use            --quiet     suppress non-essential output
+  --store STORE  Zanzibar store id            --no-color  disable colour (NO_COLOR=1 too)
+  --timeout DUR  request timeout (30s)
+
+CREDENTIAL PRECEDENCE
   --token  >  $AB0T_AUTH_TOKEN  >  $AUTH_SERVICE_KEY  >  stored file
 
-Exit codes:
-  0 success (for 'can': ALLOWED)   2 DENIED
-  1 error                          3 no credential, or it was rejected
+EXIT CODES
+  0 success (for 'can': ALLOWED)    2 DENIED
+  1 error                           3 no credential, or it was rejected
 
-Examples:
-  ab0t-auth login --email you@example.com
-  ab0t-auth whoami
-  ab0t-auth can user:alice view doc:123 --store my-store
-  ab0t-auth doctor
-
-Colour is never the only signal: every state is also a word, so piping,
-NO_COLOR and screen readers lose nothing.
+Colour is never the only signal: every state is also a word, so piping, NO_COLOR
+and screen readers lose nothing.
 `)
 }
