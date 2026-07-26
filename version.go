@@ -5,4 +5,4 @@ package authclient
 // are running a version with a known-bad contract.
 //
 // Keep this in step with the git tag: a tag of v0.1.0 means Version == "0.1.0".
-const Version = "0.9.0"
+const Version = "0.9.1"
