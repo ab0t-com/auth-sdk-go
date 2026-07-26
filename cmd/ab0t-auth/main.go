@@ -63,6 +63,7 @@ type globals struct {
 	noColor bool
 	timeout time.Duration
 	profile string
+	env     string
 }
 
 func (g *globals) register(fs *flag.FlagSet) {
@@ -74,6 +75,7 @@ func (g *globals) register(fs *flag.FlagSet) {
 	fs.BoolVar(&g.noColor, "no-color", false, "Disable colour entirely (same as NO_COLOR=1)")
 	fs.DurationVar(&g.timeout, "timeout", defaultTimeo, "Overall timeout for the request")
 	fs.StringVar(&g.profile, "profile", "", "Tenant profile to use (or $AB0T_PROFILE); see 'ab0t-auth profile'")
+	fs.StringVar(&g.env, "env", "", "Environment to isolate credentials by, e.g. dev|prod (or $AB0T_ENV)")
 }
 
 // command is one subcommand.
@@ -222,7 +224,7 @@ func run(args []string, stdout, stderr *os.File) int {
 	}
 
 	o := newOutput(stdout, stderr, g.color, g.noColor, g.json, g.quiet)
-	cred := resolveCredential(g.token, g.profile)
+	cred := resolveCredential(g.token, g.profile, g.env)
 
 	e := &env{g: g, out: o, cred: cred}
 	e.client = func() *auth.Client {

@@ -4,6 +4,25 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] — 2026-07-26
+
+### Added
+- **`--env` / `$AB0T_ENV`** — environment is now a first-class axis alongside the
+  tenant profile. `--profile acme --env prod` stores its credential separately from
+  `--profile acme --env dev`.
+
+  This follows the convention set by **`authsetup`** (the org's Go binary for
+  onboarding services to the auth mesh, from `ab0t-com/clientsetup`), which isolates
+  credentials per environment as `<svc>.<env>.json` in one flat directory while the
+  config stays shared. The reason it exists is the reason to copy it: it is what
+  stops a dev credential being used against production.
+
+### Fixed
+- `.gitignore` broadened to the usual project hazards — OS noise, archives, database
+  dumps, language/toolchain caches, and local agent scratch. Deliberately does **not**
+  blanket-ignore `*.sql`: schema and migration files are legitimate source, so only
+  dump/backup shapes are excluded.
+
 ## [0.9.0] — 2026-07-26
 
 ### Fixed — a silent contract bug in the org hierarchy
@@ -315,6 +334,7 @@ request with an untyped id now returns `*ErrUntypedID` without sending it. If yo
 were relying on that request going out, it could only ever have come back
 `allowed:false` — the guard turns a silent wrong deny into a clear error.
 
+[0.9.1]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.9.1
 [0.9.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.9.0
 [0.8.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.8.0
 [0.7.1]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.7.1

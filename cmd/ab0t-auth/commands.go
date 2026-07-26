@@ -563,7 +563,7 @@ func cmdAbout(_ context.Context, e *env, _ any, _ []string) error {
 }
 
 // profileName is the tenant context this invocation is acting in.
-func (e *env) profileName() string { return CurrentProfileName(e.g.profile) }
+func (e *env) profileName() string { return CurrentProfileNameEnv(e.g.profile, e.g.env) }
 
 // ---- tenancy ----
 //

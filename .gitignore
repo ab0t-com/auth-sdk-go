@@ -41,6 +41,73 @@ scratch/
 notes/
 TODO.local.md
 
+# ── OS / archive / package noise ─────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+__MACOSX/
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ── archives and large blobs that should never be in a source repo ───────────
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.iso
+*.dmg
+*.jar
+*.war
+
+# ── database / dump files ────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+*.sql.gz
+*.dump
+*.rdb
+# Deliberately NOT ignoring *.sql outright: schema and migration files are
+# legitimate source. Ignore the shapes that are always a dump.
+*dump*.sql
+*backup*.sql
+*.sql.bak
+
+# ── language / toolchain caches that creep in via mixed repos ────────────────
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.tox/
+*.egg-info/
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+.terraform/
+*.tfstate
+*.tfstate.backup
+
+# ── local tooling / agent scratch ────────────────────────────────────────────
+.claude/
+.aider*
+.direnv/
+.envrc
+*.local
+*.orig
+*.rej
+*.patch.bak
+
 # ── build / test output ──────────────────────────────────────────────────────
 /bin/
 /dist/
@@ -63,6 +130,12 @@ Thumbs.db
 *.bak
 
 # ── Go ───────────────────────────────────────────────────────────────────────
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.a
 # vendor/ is intentionally NOT ignored: consumers may vendor this module.
 go.work
 go.work.sum

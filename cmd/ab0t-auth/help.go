@@ -319,7 +319,12 @@ no wrong command is ever typed, there is simply one identity where there should
 have been several.
 
 Each profile holds its own credential, organization and auth service. Select one
-with --profile, $AB0T_PROFILE, or 'profile use'.`,
+with --profile, $AB0T_PROFILE, or 'profile use'.
+
+ENVIRONMENT is a separate axis: --env dev|prod (or $AB0T_ENV) isolates credentials
+per environment, so "acme" with --env prod is stored apart from "acme" with
+--env dev. That is what stops a dev credential being used against production —
+the same isolation the house 'authsetup' tool gets from <svc>.<env>.json.`,
 		Example: `  $ ab0t-auth profile list
   * acme-prod            org_01H8   ops@acme.com
     acme-staging         org_01H9   ops@acme.com
@@ -329,7 +334,11 @@ with --profile, $AB0T_PROFILE, or 'profile use'.`,
   $ ab0t-auth profile use acme-staging
   OK now using profile acme-staging
 
-  $ ab0t-auth --profile acme-prod whoami     # one-off, without switching`,
+  $ ab0t-auth --profile acme-prod whoami     # one-off, without switching
+
+  $ ab0t-auth --profile acme --env dev  login --key ab0t_sk_...
+  $ ab0t-auth --profile acme --env prod login --key ab0t_sk_...
+  # two separate credentials: acme-dev.json and acme-prod.json`,
 		Failures: [][2]string{
 			{"no profiles yet", "Run 'ab0t-auth login' — it creates the profile you are currently on."},
 			{"no profile named X", "Run 'ab0t-auth profile list' to see what exists."},

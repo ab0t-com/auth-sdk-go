@@ -145,8 +145,31 @@ func kindOf(cred string) string {
 // ---- profile selection ----
 
 // CurrentProfileName resolves which tenant context is active.
-// Precedence: --profile flag > $AB0T_PROFILE > config.json > "default".
+//
+// Precedence: --profile > $AB0T_PROFILE > config.json > "default", then the
+// ENVIRONMENT is appended if one is selected.
+//
+// Environment is a first-class axis because the house tool (`authsetup`, from
+// ab0t-com/clientsetup) makes it one: it isolates credentials per environment as
+// `<svc>.<env>.json` while the config stays shared, so "the same config promotes
+// dev to prod". The reason that exists is the reason we copy it — it is what
+// stops a dev credential being used against production. A profile named "acme"
+// with --env prod resolves to "acme.prod", stored separately from "acme.dev".
 func CurrentProfileName(flagVal string) string {
+	return withEnv(baseProfileName(flagVal), os.Getenv("AB0T_ENV"))
+}
+
+// CurrentProfileNameEnv is CurrentProfileName with an explicit --env value,
+// which takes precedence over $AB0T_ENV.
+func CurrentProfileNameEnv(flagVal, envFlag string) string {
+	env := envFlag
+	if env == "" {
+		env = os.Getenv("AB0T_ENV")
+	}
+	return withEnv(baseProfileName(flagVal), env)
+}
+
+func baseProfileName(flagVal string) string {
 	if flagVal != "" {
 		return sanitizeProfile(flagVal)
 	}
@@ -160,6 +183,16 @@ func CurrentProfileName(flagVal string) string {
 		}
 	}
 	return "default"
+}
+
+// withEnv appends the environment segment. Kept as a dot-joined suffix rather
+// than a nested directory so a profile and its environments sort together in a
+// listing — the same reason authsetup keeps <svc>.<env>.json in one flat dir.
+func withEnv(base, env string) string {
+	if env == "" {
+		return base
+	}
+	return base + "." + sanitizeProfile(env)
 }
 
 // SetCurrentProfile records the active tenant context.
@@ -231,7 +264,7 @@ func DeleteProfile(name string) (bool, error) {
 // resolveCredential applies the precedence chain. Order is the contract: an
 // explicit flag always wins, then the environment, then the selected profile.
 // Anything else would make a one-off override impossible.
-func resolveCredential(flagVal, profileFlag string) Credential {
+func resolveCredential(flagVal, profileFlag, envFlag string) Credential {
 	if flagVal != "" {
 		return Credential{Value: flagVal, Source: "--token", Kind: kindOf(flagVal), Profile: "(flag)"}
 	}
@@ -240,7 +273,7 @@ func resolveCredential(flagVal, profileFlag string) Credential {
 			return Credential{Value: v, Source: "$" + env, Kind: kindOf(v), Profile: "(env)"}
 		}
 	}
-	name := CurrentProfileName(profileFlag)
+	name := CurrentProfileNameEnv(profileFlag, envFlag)
 	if p, err := LoadProfile(name); err == nil && p.Token != "" {
 		return Credential{Value: p.Token, Source: profilePath(name), Kind: kindOf(p.Token), Profile: p.Name}
 	}
