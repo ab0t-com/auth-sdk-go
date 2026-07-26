@@ -27,7 +27,12 @@ ab0t-auth login --key ab0t_sk_…      # or --email you@example.com
 ab0t-auth whoami
 ab0t-auth can user:alice view doc:123 --store my-store
 ab0t-auth doctor                     # why isn't it working?
+ab0t-auth help can                   # deep help: purpose, example, failures, what's next
+ab0t-auth about                      # licence, source, support, the Go SDK
 ```
+
+Rehearse writes with `--dry-run`, time-box a grant with `--expires 24h`, clear an object with
+`revoke-all`, and get the whole capability catalogue as data with `help --json`.
 
 Same zero dependencies as the library. `NO_COLOR` is honoured, `--json` works on
 every command, colour is never the only signal, and exit codes carry the answer

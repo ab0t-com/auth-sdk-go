@@ -44,6 +44,7 @@ package authclient
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // ZanzibarStore is a Zanzibar store with its id and caller token already bound.
@@ -258,6 +259,27 @@ func (s *ZanzibarStore) UnrelateID(ctx context.Context, subject, relation, objec
 	}
 	if !res.Success {
 		return fmt.Errorf("authclient: relationship delete refused: %s", res.Message)
+	}
+	return nil
+}
+
+// RelateUntil writes a relationship that expires.
+//
+// Time-boxing exists on the wire and had no ergonomic path, so callers granted
+// permanent access for temporary needs — a permissions leak created by the SDK's
+// own surface rather than by anything the customer did wrong.
+func (s *ZanzibarStore) RelateUntil(ctx context.Context, subject, relation, object string, expires time.Time) error {
+	res, err := s.c.WriteRelationships(ctx, s.storeID, RelationshipRequest{
+		Object:    object,
+		Relation:  relation,
+		Subject:   subject,
+		ExpiresAt: &expires,
+	}, s.token)
+	if err != nil {
+		return err
+	}
+	if !res.Success {
+		return fmt.Errorf("authclient: relationship write refused: %s", res.Message)
 	}
 	return nil
 }

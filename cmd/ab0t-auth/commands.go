@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	auth "github.com/ab0t-com/auth-sdk-go"
+	"time"
 )
 
 // loginOpts are `login`'s own flags.
@@ -35,11 +36,25 @@ func loginFlags(fs *flag.FlagSet) any {
 }
 
 // storeOpts is shared by the Zanzibar commands.
-type storeOpts struct{ store string }
+type storeOpts struct {
+	store string
+	// dryRun prints what a write WOULD do and sends nothing.
+	//
+	// Journey UJ-E06: every evaluator invented their own safe path (a throwaway
+	// store) because the tool offered none. A write verb with no rehearsal is a
+	// write verb people are afraid of, and fear reads as "this tool is dangerous".
+	dryRun bool
+	// expires time-boxes a grant. UJ-P07: support engineers grant permanent access
+	// for a temporary need because the CLI offered no expiry, even though the
+	// service supports it. That is a permissions leak created by our own UI.
+	expires string
+}
 
 func storeFlags(fs *flag.FlagSet) any {
 	o := &storeOpts{}
 	fs.StringVar(&o.store, "store", os.Getenv("AB0T_ZANZIBAR_STORE"), "Zanzibar store id (or $AB0T_ZANZIBAR_STORE)")
+	fs.BoolVar(&o.dryRun, "dry-run", false, "Show what would change and send nothing")
+	fs.StringVar(&o.expires, "expires", "", "Time-box a grant, e.g. 24h or 2026-08-01T00:00:00Z")
 	return o
 }
 
@@ -63,6 +78,8 @@ var commands = []command{
 	{"what-can", "List objects a subject may act on", "what-can <subject> <permission> <object-type> --store STORE", storeFlags, cmdWhatCan},
 	{"grant", "Write a relationship tuple", "grant <subject> <relation> <object> --store STORE", storeFlags, cmdGrant},
 	{"revoke", "Remove a relationship tuple", "revoke <subject> <relation> <object> --store STORE", storeFlags, cmdRevoke},
+	{"revoke-all", "Remove every relationship on an object (offboarding)", "revoke-all <object> --store STORE [--dry-run]", storeFlags, cmdRevokeAll},
+	{"about", "Licence, support, source and the Go SDK", "about", nil, cmdAbout},
 	{"health", "Check that the auth service is reachable and healthy", "health", nil, cmdHealth},
 	{"doctor", "Diagnose configuration and connectivity", "doctor", nil, cmdDoctor},
 }
@@ -314,10 +331,37 @@ func relate(ctx context.Context, e *env, opts any, args []string, grant bool) er
 	if !e.cred.Present() {
 		return errNoCredential
 	}
+	so := opts.(*storeOpts)
+
+	if so.dryRun {
+		// Nothing is sent. Say so unmistakably: a dry run that looks like a real
+		// run is worse than no dry run, because the operator believes the change
+		// landed.
+		return e.out.emit(map[string]any{
+			"dry_run": true, "action": verb, "subject": rest[0],
+			"relation": rest[1], "object": rest[2], "store": store,
+		}, func() {
+			e.out.printf("DRY RUN — nothing was sent\n")
+			e.out.printf("  would %s: %s %s %s  (store %s)\n", verb, rest[0], rest[1], rest[2], store)
+			if so.expires != "" {
+				e.out.printf("  expiring: %s\n", so.expires)
+			}
+		})
+	}
+
 	st := e.client().Store(store, e.cred.Value)
 	var err error
 	if grant {
-		err = st.RelateID(ctx, rest[0], rest[1], rest[2])
+		if so.expires != "" {
+			var exp time.Time
+			exp, err = parseExpiry(so.expires)
+			if err != nil {
+				return err
+			}
+			err = st.RelateUntil(ctx, rest[0], rest[1], rest[2], exp)
+		} else {
+			err = st.RelateID(ctx, rest[0], rest[1], rest[2])
+		}
 	} else {
 		err = st.UnrelateID(ctx, rest[0], rest[1], rest[2])
 	}
@@ -423,4 +467,93 @@ func cmdDoctor(ctx context.Context, e *env, opts any, _ []string) error {
 		return fmt.Errorf("%d of %d checks failed", failed, len(checks))
 	}
 	return nil
+}
+
+// parseExpiry accepts either a duration ("24h") or an RFC3339 instant. Both forms
+// appear in the wild and guessing wrong about which one someone meant is worse
+// than accepting both.
+func parseExpiry(s string) (time.Time, error) {
+	if d, err := time.ParseDuration(s); err == nil {
+		return time.Now().UTC().Add(d), nil
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t.UTC(), nil
+	}
+	return time.Time{}, fmt.Errorf("could not read %q as an expiry: use a duration like 24h, or an RFC3339 time like 2026-08-01T00:00:00Z", s)
+}
+
+// cmdRevokeAll removes every relationship on an object.
+//
+// Journey UJ-S13: offboarding was a manual loop with no completeness guarantee —
+// the reviewer had to already know every relation, and any they forgot stayed
+// granted silently. "I think I removed everything" is not an answer a security
+// reviewer can sign.
+func cmdRevokeAll(ctx context.Context, e *env, opts any, args []string) error {
+	so := opts.(*storeOpts)
+	if err := needStore(so.store); err != nil {
+		return err
+	}
+	if err := needArgs(args, 1, "revoke-all <object>"); err != nil {
+		return err
+	}
+	if !e.cred.Present() {
+		return errNoCredential
+	}
+	objType, objID, ok := strings.Cut(args[0], ":")
+	if !ok || objType == "" || objID == "" {
+		return fmt.Errorf("object must be a typed id like %q, got %q", "doc:123", args[0])
+	}
+
+	if so.dryRun {
+		rels, err := e.client().Store(so.store, e.cred.Value).RelationsOn(ctx, objType, objID, "")
+		if err != nil {
+			return err
+		}
+		return e.out.emit(map[string]any{"dry_run": true, "object": args[0], "would_remove": len(rels), "relationships": rels},
+			func() {
+				e.out.printf("DRY RUN — nothing was sent\n")
+				e.out.printf("  would remove %d relationship(s) on %s\n", len(rels), args[0])
+				for _, r := range rels {
+					e.out.printf("    %s %s\n", r.Relation, r.Subject)
+				}
+			})
+	}
+
+	n, err := e.client().DeleteAllRelationshipsForObject(ctx, so.store, objType, objID, e.cred.Value)
+	if err != nil {
+		return err
+	}
+	return e.out.emit(map[string]any{"ok": true, "object": args[0], "removed": n},
+		func() { e.out.ok(fmt.Sprintf("removed %d relationship(s) on %s", n, args[0])) })
+}
+
+// cmdAbout surfaces the facts three different hats currently leave the tool to
+// find: the licence (UJ-B05), where support lives (UJ-B04), and that this is a
+// thin layer over an importable Go SDK (UJ-E11).
+func cmdAbout(_ context.Context, e *env, _ any, _ []string) error {
+	info := map[string]any{
+		"name":         "ab0t-auth",
+		"version":      auth.Version,
+		"licence":      "MIT",
+		"source":       "https://github.com/ab0t-com/auth-sdk-go",
+		"issues":       "https://github.com/ab0t-com/auth-sdk-go/issues",
+		"security":     "https://github.com/ab0t-com/auth-sdk-go/security/advisories/new",
+		"changelog":    "https://github.com/ab0t-com/auth-sdk-go/blob/main/CHANGELOG.md",
+		"go_sdk":       "go get github.com/ab0t-com/auth-sdk-go",
+		"dependencies": 0,
+		"service":      auth.DefaultBaseURL,
+	}
+	return e.out.emit(info, func() {
+		e.out.kv(
+			[2]string{"ab0t-auth", auth.Version},
+			[2]string{"licence", "MIT"},
+			[2]string{"source", "https://github.com/ab0t-com/auth-sdk-go"},
+			[2]string{"issues", "https://github.com/ab0t-com/auth-sdk-go/issues"},
+			[2]string{"security", "report privately — see SECURITY.md in the repo"},
+			[2]string{"changelog", "https://github.com/ab0t-com/auth-sdk-go/blob/main/CHANGELOG.md"},
+			[2]string{"go sdk", "go get github.com/ab0t-com/auth-sdk-go"},
+			[2]string{"dependencies", "none — standard library only"},
+			[2]string{"default service", auth.DefaultBaseURL},
+		)
+	})
 }

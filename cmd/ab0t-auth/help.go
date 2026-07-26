@@ -160,6 +160,7 @@ Exit code carries the answer, so this works in a script:
 			{"is not a typed Zanzibar id", `Add the type prefix: "user:alice" rather than "alice".`},
 			{"a store is required", "Pass --store, or set $AB0T_ZANZIBAR_STORE. A store is the permissions database for your app."},
 			{"DENIED when you expected ALLOWED", "Not a failure. Run 'why' for the reasoning, then 'grant' if the relationship is genuinely missing."},
+			{"your script dies on a DENIED", "Exit 2 is an ANSWER, not an error — but `set -e` and `set -o pipefail` treat it as one. Capture it first: out=$(ab0t-auth can … --json); rc=$?"},
 		},
 		Next:    []string{"why — see the reasoning behind that answer", "grant — create the relationship if it is missing", "who-can — see everyone who can do this"},
 		SeeAlso: []string{"why", "grant", "who-can"},
@@ -281,6 +282,56 @@ whether the problem is you or the service.`,
 		Next:    []string{"doctor — if health is fine but your commands still fail, the problem is local"},
 		SeeAlso: []string{"doctor"},
 	},
+	"revoke-all": {
+		Purpose: `Remove EVERY relationship on one object, in a single operation.
+
+This is the offboarding verb. Removing access one relation at a time requires you
+to already know every relation that exists — and any you forget stays granted,
+silently. "I think I removed everything" is not something a security reviewer can
+sign; this makes it something they can.
+
+Always rehearse with --dry-run first: it lists exactly what would go, and sends
+nothing.`,
+		Example: `  $ ab0t-auth revoke-all doc:123 --store my-store --dry-run
+  DRY RUN — nothing was sent
+    would remove 3 relationship(s) on doc:123
+      owner  user:alice
+      viewer user:bob
+      viewer group:eng
+
+  $ ab0t-auth revoke-all doc:123 --store my-store
+  OK removed 3 relationship(s) on doc:123`,
+		Failures: [][2]string{
+			{"object must be a typed id", `Use "doc:123", not "123" — the type is how the service knows what you mean.`},
+			{"removed 0", "There was nothing on that object. A real answer, not an error."},
+			{"you meant to offboard a PERSON, not an object", "This removes relationships ON an object. To find everything a person can reach, use 'what-can' per object type first."},
+		},
+		Next:    []string{"who-can <object> <permission>  — confirm the object is now empty", "what-can <subject> <permission> <type>  — if you are offboarding a person"},
+		SeeAlso: []string{"revoke", "who-can", "what-can"},
+	},
+	"about": {
+		Purpose: `Licence, source, support channels, and the fact that this CLI is a thin
+layer over an importable Go SDK.
+
+These are the questions people leave the tool to answer — a legal reviewer wants
+the licence, a buyer wants the support channel, an engineer outgrowing the CLI
+wants the library. Asking a binary is faster than finding a repository.`,
+		Example: `  $ ab0t-auth about
+  ab0t-auth:       0.8.0
+  licence:         MIT
+  source:          https://github.com/ab0t-com/auth-sdk-go
+  issues:          https://github.com/ab0t-com/auth-sdk-go/issues
+  go sdk:          go get github.com/ab0t-com/auth-sdk-go
+  dependencies:    none — standard library only
+
+  $ ab0t-auth about --json | jq -r .licence
+  MIT`,
+		Failures: [][2]string{
+			{"you need the changelog for a specific version", "The link is in the output; releases are tagged in the repository."},
+		},
+		Next:    []string{"help  — the command list", "doctor  — check your configuration"},
+		SeeAlso: []string{"version", "doctor"},
+	},
 	"doctor": {
 		Purpose: `Diagnose your configuration and connectivity end to end. START HERE when
 something is wrong.
@@ -308,6 +359,62 @@ Exits non-zero if any check fails, so it works as a CI preflight step.`,
 		Next:    []string{"login — if the credential check failed", "health — if you suspect the service rather than your setup"},
 		SeeAlso: []string{"health", "whoami", "login"},
 	},
+}
+
+// helpJSON is the machine-readable capability list.
+//
+// Journey UJ-A02: every other surface in this CLI is machine-readable and the
+// capability list was not, so an agent discovering the tool had to regex prose.
+// That is the one place we forced a machine to behave like a human, and it is the
+// hat we otherwise serve best.
+type helpJSON struct {
+	Name     string            `json:"name"`
+	Version  string            `json:"version"`
+	Purpose  string            `json:"purpose"`
+	Commands []cmdJSON         `json:"commands"`
+	Common   []commonJSON      `json:"common_commands"`
+	Exit     map[string]string `json:"exit_codes"`
+}
+
+type cmdJSON struct {
+	Name     string      `json:"name"`
+	Summary  string      `json:"summary"`
+	Usage    string      `json:"usage"`
+	Purpose  string      `json:"purpose,omitempty"`
+	Example  string      `json:"example,omitempty"`
+	Failures [][2]string `json:"failures,omitempty"`
+	Next     []string    `json:"next,omitempty"`
+	SeeAlso  []string    `json:"see_also,omitempty"`
+}
+
+type commonJSON struct {
+	Command string `json:"command"`
+	Why     string `json:"why"`
+}
+
+func buildHelpJSON(version string) helpJSON {
+	h := helpJSON{
+		Name:    "ab0t-auth",
+		Version: version,
+		Purpose: "Ask and answer authorization questions against the ab0t Auth Service.",
+		Exit: map[string]string{
+			"0": "success; for 'can', the answer was ALLOWED",
+			"1": "error",
+			"2": "the answer was DENIED",
+			"3": "no credential, or the credential was rejected",
+		},
+	}
+	for _, c := range commands {
+		e := cmdJSON{Name: c.name, Summary: c.summary, Usage: c.usage}
+		if d, ok := helpDocs[c.name]; ok {
+			e.Purpose, e.Example, e.Failures, e.Next, e.SeeAlso = d.Purpose, d.Example, d.Failures, d.Next, d.SeeAlso
+		}
+		h.Commands = append(h.Commands, e)
+	}
+	for _, c := range commonCommands {
+		h.Common = append(h.Common, commonJSON{Command: c.cmd, Why: c.why})
+	}
+	return h
 }
 
 // renderVerbHelp writes the deep help for one verb.

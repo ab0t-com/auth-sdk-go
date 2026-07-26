@@ -33,6 +33,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -120,6 +121,24 @@ func run(args []string, stdout, stderr *os.File) int {
 		// `help <verb>` must answer about THAT verb. Printing the generic page
 		// with exit 0 — which is what this did before the journey review — tells
 		// the customer their question succeeded while answering a different one.
+		// help --json: the capability list as data (UJ-A02).
+		for _, a := range args {
+			if a == "--json" || a == "-json" {
+				enc := json.NewEncoder(stdout)
+				enc.SetIndent("", "  ")
+				if len(args) > 1 && lookup(args[1]) != nil {
+					h := buildHelpJSON(auth.Version)
+					for _, c := range h.Commands {
+						if c.Name == args[1] {
+							_ = enc.Encode(c)
+							return exitOK
+						}
+					}
+				}
+				_ = enc.Encode(buildHelpJSON(auth.Version))
+				return exitOK
+			}
+		}
 		if len(args) > 1 {
 			o := newOutput(stdout, stderr, false, false, false, false)
 			if lookup(args[1]) == nil {

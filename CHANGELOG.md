@@ -4,6 +4,35 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] — 2026-07-26
+
+### Added — from 105 further customer journeys (15 per hat, all automated)
+
+- **`help --json`** — the capability catalogue as data, whole or per verb. Every
+  other surface was machine-readable and this one was not, so an agent
+  discovering the tool had to regex prose. That was the one place we forced a
+  machine to behave like a human, in the hat we otherwise serve best.
+- **`--dry-run`** on `grant`, `revoke` and `revoke-all` — prints exactly what
+  would change and sends nothing. Every evaluator was inventing their own safe
+  path (usually a throwaway store) because none was offered; a write verb with no
+  rehearsal is one people are afraid of.
+- **`--expires`** on `grant`, taking a duration (`24h`) or an RFC3339 instant.
+  Support engineers were granting **permanent** access for temporary needs because
+  the CLI had no expiry, though the service supports it — a permissions leak
+  created by our own interface. Also `ZanzibarStore.RelateUntil` in the SDK.
+- **`revoke-all <object>`** — removes every relationship on an object. Offboarding
+  was a manual loop that required already knowing every relation; anything
+  forgotten stayed granted, silently. Object-scoped; the per-principal case is
+  named as still open rather than left to be rediscovered.
+- **`about`** — licence, source, issues, security contact, changelog, the Go SDK
+  import line, and the dependency count. Three separate hats were leaving the tool
+  to find basic facts.
+
+### Fixed
+- `can`'s help now documents that exit code 2 is an **answer**, not an error, and
+  gives the capture-first idiom — `set -e` / `set -o pipefail` otherwise abort a
+  script on a perfectly good DENIED. The expanded harness tripped over this itself.
+
 ## [0.7.1] — 2026-07-26
 
 ### Fixed
@@ -251,6 +280,7 @@ request with an untyped id now returns `*ErrUntypedID` without sending it. If yo
 were relying on that request going out, it could only ever have come back
 `allowed:false` — the guard turns a silent wrong deny into a clear error.
 
+[0.8.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.8.0
 [0.7.1]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.7.1
 [0.7.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.7.0
 [0.6.0]: https://github.com/ab0t-com/auth-sdk-go/releases/tag/v0.6.0
