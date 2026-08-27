@@ -139,8 +139,8 @@ func TestOrgScopedAuth(t *testing.T) {
 
 func TestLoginConfig(t *testing.T) {
 	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer ab0t_sk_k" && r.URL.Path != "/organizations/acme/login-config/public" {
-			t.Errorf("auth = %q for %s", r.Header.Get("Authorization"), r.URL.Path)
+		if r.Header.Get("X-API-Key") != "ab0t_sk_k" && r.URL.Path != "/organizations/acme/login-config/public" {
+			t.Errorf("auth = %q for %s", r.Header.Get("X-API-Key"), r.URL.Path)
 		}
 		switch r.URL.Path {
 		case "/organizations/o1/login-config":
@@ -250,8 +250,8 @@ func TestSAMLManagement(t *testing.T) {
 		case "/saml/acs":
 			writeJSON(w, 200, SAMLAssertionResult{NameID: "user@x", AccessToken: "at"})
 		case "/saml/sp/register":
-			if r.Header.Get("Authorization") != "Bearer ab0t_sk_admin" {
-				t.Errorf("sp register auth = %q", r.Header.Get("Authorization"))
+			if r.Header.Get("X-API-Key") != "ab0t_sk_admin" {
+				t.Errorf("sp register auth = %q", r.Header.Get("X-API-Key"))
 			}
 			writeJSON(w, 201, SAMLSPRegistrationResponse{SPID: "sp1"})
 		case "/saml/sp/list":

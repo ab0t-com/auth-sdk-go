@@ -50,6 +50,55 @@ var (
 // based on the ab0t_sk_ prefix.
 func IsAPIKey(cred string) bool { return strings.HasPrefix(cred, APIKeyPrefix) }
 
+// LooksLikeJWT reports whether a credential has the shape of a JWS compact
+// serialization: three non-empty, dot-separated segments and no whitespace.
+// It is a SHAPE test, not a validity test — it neither verifies the signature
+// nor parses the claims. Use it to decide how to TRANSPORT a credential, never
+// to decide whether to trust one.
+func LooksLikeJWT(cred string) bool {
+	if cred == "" || strings.ContainsAny(cred, " \t\r\n") {
+		return false
+	}
+	parts := strings.Split(cred, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	for _, p := range parts {
+		if p == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// CredentialHeader reports the header name and value the auth service expects
+// for cred, so callers never have to think about it.
+//
+// WHY THIS EXISTS: the service deliberately keeps the two credential systems on
+// separate transports, and gets it wrong in opposite directions on different
+// routes. An ab0t_sk_ key presented as "Authorization: Bearer <key>" is rejected
+// 401 at the forward-auth edge (an asserted anti-credential-confusion invariant);
+// a key presented as a bare "Authorization: <key>" is invisible to the API routes,
+// because FastAPI's HTTPBearer only populates credentials for the Bearer scheme.
+// X-API-Key is the one transport every API-key-accepting surface reads, so that
+// is what we send for keys. JWTs keep Authorization: Bearer, unchanged.
+//
+// Shape decides, not configuration: an ab0t_sk_ prefix means API key; a JWS
+// compact shape means JWT; anything else falls back to Bearer, which is the
+// historical behavior and keeps third-party/opaque tokens working.
+func CredentialHeader(cred string) (name, value string) {
+	switch {
+	case cred == "":
+		return "", ""
+	case IsAPIKey(cred):
+		return "X-API-Key", cred
+	case LooksLikeJWT(cred):
+		return "Authorization", "Bearer " + cred
+	default:
+		return "Authorization", "Bearer " + cred
+	}
+}
+
 // ---- Options ----
 
 // Option configures a Client.
@@ -64,8 +113,10 @@ func WithBaseURL(u string) Option {
 	}
 }
 
-// WithAPIKey sets the service API key (prefix "ab0t_sk_") sent as a bearer
-// token on calls that require service-to-service auth (e.g. CheckPermission).
+// WithAPIKey sets the service API key (prefix "ab0t_sk_") used on calls that
+// require service-to-service auth (e.g. CheckPermission). It is transported as
+// X-API-Key — the header every API-key-accepting surface reads; see
+// CredentialHeader for why not Authorization: Bearer.
 // Per-call user tokens always override this default.
 func WithAPIKey(key string) Option {
 	return func(c *Client) { c.apiKey = key }
@@ -145,6 +196,11 @@ type Client struct {
 	backoffMax       time.Duration
 
 	jwks *jwksCache
+
+	// vcache, when non-nil, caches credential-validation decisions. Opt-in via
+	// WithValidationCache; nil means every validation is an HTTP call, which is
+	// the historical behavior and stays the default. See validationcache.go.
+	vcache *validationCache
 
 	// observer, when set, receives one RequestInfo per completed HTTP attempt.
 	// See observe.go.

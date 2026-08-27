@@ -61,7 +61,7 @@ func TestUserSelfService(t *testing.T) {
 func TestUserAdminLifecycle(t *testing.T) {
 	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		// service API key fallback must authenticate admin ops.
-		if r.Header.Get("Authorization") != "Bearer ab0t_sk_admin" {
+		if r.Header.Get("X-API-Key") != "ab0t_sk_admin" {
 			t.Errorf("auth = %q", r.Header.Get("Authorization"))
 		}
 		switch r.URL.Path {
@@ -835,8 +835,8 @@ func TestDelegationDomain(t *testing.T) {
 
 func TestAdminDomain(t *testing.T) {
 	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer ab0t_sk_admin" {
-			t.Errorf("admin op missing auth: %q", r.Header.Get("Authorization"))
+		if r.Header.Get("X-API-Key") != "ab0t_sk_admin" {
+			t.Errorf("admin op missing auth: X-API-Key=%q", r.Header.Get("X-API-Key"))
 		}
 		switch r.URL.Path {
 		case "/admin/password-policy":

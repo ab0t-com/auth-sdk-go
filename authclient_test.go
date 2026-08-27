@@ -728,7 +728,7 @@ func TestSigningKeyNotFound(t *testing.T) {
 
 func TestServiceAPIKeyFallback(t *testing.T) {
 	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("Authorization"); got != "Bearer ab0t_sk_svc" {
+		if got := r.Header.Get("X-API-Key"); got != "ab0t_sk_svc" {
 			t.Errorf("auth = %q (api key fallback)", got)
 		}
 		writeJSON(w, 200, PermissionDecision{Allowed: true})

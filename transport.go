@@ -18,7 +18,8 @@ import (
 const maxBodyBytes = 4 << 20 // 4 MiB
 
 // doJSON sends an optional JSON body and decodes a JSON response into out.
-// bearer, if non-empty, sets Authorization: Bearer <bearer>.
+// bearer, if non-empty, is the credential; its shape selects the header
+// (X-API-Key for ab0t_sk_ keys, Authorization: Bearer for JWTs) — see CredentialHeader.
 func (c *Client) doJSON(ctx context.Context, method, path string, body, out any, bearer string) error {
 	var raw []byte
 	if body != nil {
@@ -178,18 +179,22 @@ func (c *Client) do(ctx context.Context, method, path, contentType string, body 
 	}
 }
 
-// applyCommon sets shared headers. If bearer is empty, falls back to the
+// applyCommon sets shared headers. If cred is empty, falls back to the
 // configured service API key (so service-to-service calls authenticate).
-func (c *Client) applyCommon(req *http.Request, bearer string) {
+//
+// The credential's SHAPE selects its transport — see CredentialHeader. Callers
+// hand us a credential and never have to know which header the service wants:
+// ab0t_sk_ keys go out as X-API-Key, JWTs as Authorization: Bearer.
+func (c *Client) applyCommon(req *http.Request, cred string) {
 	req.Header.Set("Accept", "application/json")
 	if c.userAgent != "" {
 		req.Header.Set("User-Agent", c.userAgent)
 	}
-	if bearer == "" {
-		bearer = c.apiKey
+	if cred == "" {
+		cred = c.apiKey
 	}
-	if bearer != "" {
-		req.Header.Set("Authorization", "Bearer "+bearer)
+	if name, value := CredentialHeader(cred); name != "" {
+		req.Header.Set(name, value)
 	}
 }
 

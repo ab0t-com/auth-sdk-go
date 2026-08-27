@@ -208,12 +208,24 @@ func (c *Client) ValidateTokenWith(ctx context.Context, req TokenValidationReque
 	if req.ExpectedAudience == "" {
 		req.ExpectedAudience = c.expectedAudience
 	}
-	var out Actor
-	if err := c.doJSON(ctx, "POST", "/auth/validate-token", req, &out, ""); err != nil {
-		return nil, err
+	fetch := func(ctx context.Context) (*Actor, error) {
+		var out Actor
+		if err := c.doJSON(ctx, "POST", "/auth/validate-token", req, &out, ""); err != nil {
+			return nil, err
+		}
+		out.retrievedAt = time.Now()
+		return &out, nil
 	}
-	out.retrievedAt = time.Now()
-	return &out, nil
+	if c.vcache == nil {
+		return fetch(ctx)
+	}
+	// The key covers every field of the request that can change the answer.
+	// IncludePermissions is in it because it changes the RESPONSE, and a cached
+	// Actor without permissions must not be served to a caller that asked for
+	// them.
+	key := validationKey("validate-token", req.Token, req.ExpectedAudience,
+		req.RequiredPermissions, req.ResourceType, req.ResourceID, req.IncludePermissions)
+	return c.vcache.get(ctx, key, fetch)
 }
 
 // Authorize reports whether token may perform action on resource. It validates
@@ -255,11 +267,48 @@ func (c *Client) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest) 
 	if req.ExpectedAudience == "" {
 		req.ExpectedAudience = c.expectedAudience
 	}
-	var out APIKeyValidation
-	if err := c.doJSON(ctx, "POST", "/auth/validate-api-key", req, &out, ""); err != nil {
+	fetch := func(ctx context.Context) (*APIKeyValidation, error) {
+		var out APIKeyValidation
+		if err := c.doJSON(ctx, "POST", "/auth/validate-api-key", req, &out, ""); err != nil {
+			return nil, err
+		}
+		return &out, nil
+	}
+	if c.vcache == nil {
+		return fetch(ctx)
+	}
+	// Cached as an *Actor so an API key and a JWT share one cache and one set of
+	// TTL rules. The two shapes carry the same facts, so the round trip through
+	// Actor is lossless for everything APIKeyValidation models.
+	key := validationKey("validate-api-key", req.APIKey, req.ExpectedAudience,
+		req.RequiredPermissions, "", "", false)
+	actor, err := c.vcache.get(ctx, key, func(ctx context.Context) (*Actor, error) {
+		v, err := fetch(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &Actor{
+			Valid:       v.Valid,
+			UserID:      v.UserID,
+			OrgID:       v.OrgID,
+			Permissions: v.Permissions,
+			Error:       v.Reason,
+			retrievedAt: time.Now(),
+		}, nil
+	})
+	if err != nil {
 		return nil, err
 	}
-	return &out, nil
+	if actor == nil {
+		return nil, nil
+	}
+	return &APIKeyValidation{
+		Valid:       actor.Valid,
+		UserID:      actor.UserID,
+		OrgID:       actor.OrgID,
+		Permissions: actor.Permissions,
+		Reason:      actor.Error,
+	}, nil
 }
 
 // Introspect performs RFC 7662 token introspection. POST /token/introspect.
