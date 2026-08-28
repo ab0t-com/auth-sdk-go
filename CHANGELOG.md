@@ -11,6 +11,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 > RELEASING.md. Verified against the live Python auth service AND goauth
 > (`localhost:8028`, the incoming primary backend) on 2026-08-27.
 
+### How to move to this version + where the contracts are written down
+
+- **Migration:** every breaking item below has a one-line *Migration* note. Full before→after with
+  internal/external classification: **`docs/CONTRACT_DRIFT_LOG.md`**.
+- **Hand-rolled (non-SDK) clients:** the wire field shapes — validation, issuance, delegation, the
+  `aud` contract, and the value traps (numeric timestamp, object-map quotas, `error` vs `reason`) —
+  are in **`docs/FIELD_CONTRACT.md`**, verified against both live backends.
+- **Full investigation + evidence:** `tickets/20260827_sdk_contract_drift/`.
+- **Assurance going forward:** a field+value contract gate (`make field-drift` / `field-drift-strict`,
+  operation-based + type-aware, both backends) now guards against this drift class; it is wired into
+  CI (`.ci-pending/ci.yml`, `contract-drift` job) to run against the live public server on every build.
+
 ### ⚠️ BREAKING CHANGES — action required for some callers
 
 - **`Authorize()` now performs a real resource-scoped decision.** When you pass a
@@ -52,6 +64,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - `HealthCheckResponse.Components` **removed** (never populated by any backend).
   - `ServiceDiscoveryResponse.Endpoints` and `.Links` **removed** (never populated).
   - *Migration:* stop referencing these fields; the real data is in the added fields below.
+
+- **`APIKey` / `APIKeyUpdate`: `Enabled` → `IsActive` (wire `is_active`).** The server's field is
+  `is_active`; the SDK sent/read `enabled`, which the server **ignored** — so enabling/disabling a key
+  through the SDK silently did nothing. Response `APIKey` drops phantom `Enabled`/`LastUsedAt`
+  (superseded by `IsActive`/`LastUsed`); request `APIKeyUpdate` renames `Enabled`→`IsActive` and adds
+  `RateLimit`/`Metadata`. *Migration:* use `IsActive` instead of `Enabled`. See `docs/CONTRACT_DRIFT_LOG.md`.
 
 ### ⚠️ BREAKING (bugfix) — types corrected to the real wire values (F-12)
 

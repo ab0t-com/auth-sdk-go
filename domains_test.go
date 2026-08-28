@@ -783,7 +783,7 @@ func TestAPIKeysDomain(t *testing.T) {
 		t.Fatalf("GetAPIKey: %v", err)
 	}
 	en := false
-	if _, err := c.UpdateAPIKey(ctx, "k1", APIKeyUpdate{Enabled: &en}, "tok"); err != nil {
+	if _, err := c.UpdateAPIKey(ctx, "k1", APIKeyUpdate{IsActive: &en}, "tok"); err != nil {
 		t.Fatalf("UpdateAPIKey: %v", err)
 	}
 	if _, err := c.DeleteAPIKey(ctx, "k1", "tok"); err != nil {

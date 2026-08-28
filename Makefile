@@ -11,7 +11,7 @@ help:
 	@echo "check   - fmt-check + vet + test + stdlib-only assertion (what CI runs)"
 	@echo "spec    - fetch the live OpenAPI spec to /tmp/auth-openapi.json"
 	@echo "drift   - check this SDK's PATHS against the LIVE OpenAPI spec"
-	@echo "field-drift - check this SDK's FIELDS against both backends (Python + goauth)"
+	@echo "field-drift - check FIELDS+VALUES vs both backends (operation-based, type-aware)"
 	@echo "release - VERSION=x.y.z  bump, tag and push a release (see RELEASING.md)"
 
 .PHONY: test
@@ -47,17 +47,19 @@ check:
 drift:
 	python3 scripts/spec-coverage.py
 
-# Path coverage says every server PATH has a method; it says nothing about whether
-# the request/response SHAPES match. field-drift checks the json tags on the SDK's
-# structs against the OpenAPI schema fields, against BOTH backends (Python + goauth).
-# Name-based, so a LOWER BOUND. See tickets/20260827_sdk_contract_drift.
+# Path coverage says every server PATH has a method; it says nothing about whether the
+# request/response SHAPES and VALUES match. field-drift closes that: it matches each method by
+# ROUTE (verb+path) to the server schema and diffs the Go type at the call site — catching the
+# NAME-MISMATCH class (Actor <-> TokenValidationResponse) AND TYPE mismatches (a numeric field
+# typed as a Go string, which fails the whole decode). Runs against BOTH backends (Python +
+# goauth). Supersedes the name-based scripts/field-coverage.py. See tickets/20260827_sdk_contract_drift.
 .PHONY: field-drift
 field-drift:
-	python3 scripts/field-coverage.py
+	python3 scripts/field-drift.py
 
 .PHONY: field-drift-strict
 field-drift-strict:
-	python3 scripts/field-coverage.py --strict
+	python3 scripts/field-drift.py --strict
 
 .PHONY: drift-strict
 drift-strict:

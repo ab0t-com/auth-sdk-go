@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -251,5 +252,22 @@ func TestQuotaUsage_DecodesObjectMaps(t *testing.T) {
 	}
 	if u.Usage["api_calls"] != 42 || u.Limits["api_calls"] != 1000 || u.Tier != "pro" {
 		t.Fatalf("F-12: quota usage decoded wrong: %+v", u)
+	}
+}
+
+// E / F-10: APIKeyUpdate must send `is_active` (the field the server reads), never
+// `enabled` (which the server ignored, so key enable/disable silently did nothing).
+func TestAPIKeyUpdate_MarshalsIsActiveNotEnabled(t *testing.T) {
+	on := true
+	b, err := json.Marshal(APIKeyUpdate{IsActive: &on})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, `"is_active":true`) {
+		t.Fatalf("E: APIKeyUpdate must marshal is_active; got %s", s)
+	}
+	if strings.Contains(s, `"enabled"`) {
+		t.Fatalf("E: APIKeyUpdate must NOT send the ignored `enabled` field; got %s", s)
 	}
 }

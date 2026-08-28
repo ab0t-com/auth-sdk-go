@@ -29,37 +29,15 @@ PYTHON_URL = "https://auth.service.ab0t.com/openapi.json"
 GOAUTH_URL = "http://localhost:8028/openapi.json"
 
 # --- Allowlist: known, TRACKED gaps that must not fail --strict while remediation is in flight.
-# Each entry keeps a (method-or-struct, field) out of the gate. Wildcards: ("METHOD","*") allows
-# a whole method; ("*","field") allows a field everywhere. The allowlist SHRINKS to empty as the
-# F-10 per-domain response strips are filled (tickets/20260827_sdk_contract_drift/children/).
-# Every entry cites its finding. Seeded 2026-08-28 (F-09 and F-12 are already FIXED, not listed).
+# Each entry keeps a (method-or-struct, field) out of the gate. Wildcards: ("METHOD","*") allows a
+# whole method; ("*","field") allows a field everywhere. Every entry MUST cite its tracking finding.
+#
+# EMPTY as of 2026-08-28: the F-04/F-09/F-12 fixes plus the F-10 per-domain response-strip pass
+# (ticket 20260827_sdk_contract_drift) closed every gate-worthy gap on BOTH backends, so there is
+# nothing to allow. Keeping it empty means any NEW required-field or type regression fails --strict
+# immediately. Add an entry ONLY for a deliberately-deferred gap, with its ticket reference, e.g.:
+#     KNOWN_FIELD_GAPS.add(("SomeMethod", "*"))  # F-XX, tracked in children/NN_domain.md
 KNOWN_FIELD_GAPS: set[tuple[str, str]] = set()
-# F-10 — bulk response-field strips across admin/providers/orgs/email/saml/federation/passwordless.
-# These methods return a server schema with required fields the SDK type does not yet model. They
-# are additive (safe) and tracked per-domain; allow the whole method until its child ticket lands.
-for _m in (
-    # federation / SSO
-    "GetSSODomain", "CreateSSODomain", "UpdateSSODomain", "GetSSOSession", "CreateSSOSession",
-    "GetSSOConfig", "ListSSODomains",
-    # admin / super-admin
-    "EmergencyRevokeAPIKeys", "UpdateProviderStatus", "ElevatePrivileges", "ResetAllCircuitBreakers",
-    "ResetCircuitBreaker", "RotateSigningKeys", "SuperAdminCleanupExpired", "SuperAdminRevoke",
-    "ActivateSigningKey", "ForcePasswordReset", "PasswordComplianceReport", "CreateServiceAccount",
-    "CircuitBreakerStatus", "SuperAdminActiveGrants", "CleanupSigningKeys", "GenerateSigningKey",
-    # email
-    "EmailStats", "EmailHistory",
-    # network
-    "CreateNetworkPolicy", "CreateTempAllowlist", "CreateEmergencyOverride",
-    # providers / teams / users (name-mismatch response bodies)
-    "GetAPIKey", "UpdateOrganization",
-    # oauth / discovery
-    "AuthorizationServerMetadata", "OpenIDConfiguration",
-    # SAML
-    "GetSAMLSP", "SAMLAnalytics",
-    # webauthn
-    "WebAuthnConfig",
-):
-    KNOWN_FIELD_GAPS.add((_m, "*"))
 
 
 def allowlisted(method: str, field: str) -> bool:

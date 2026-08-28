@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SUPERSEDED by scripts/field-drift.py (operation-based, type-aware, both backends).
+# Retained for reference; `make field-drift` now runs field-drift.py. This name-based checker is
+# a LOWER BOUND (blind to the name-mismatch class, e.g. Actor<->TokenValidationResponse).
 """field-coverage.py — FIELD-level drift between this SDK and the auth OpenAPI.
 
 `spec-coverage.py` checks that every server PATH has an SDK method. It says

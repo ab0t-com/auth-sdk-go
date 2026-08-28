@@ -26,8 +26,15 @@ type APIKeyCreate struct {
 type APIKeyUpdate struct {
 	Name        *string   `json:"name,omitempty"`
 	Permissions *[]string `json:"permissions,omitempty"`
-	Enabled     *bool     `json:"enabled,omitempty"`
-	ExpiresAt   *string   `json:"expires_at,omitempty"`
+	// IsActive enables/disables the key. The server field is `is_active`; an
+	// earlier revision sent `enabled`, which the server ignored — so toggling a
+	// key through the SDK silently did nothing.
+	IsActive  *bool          `json:"is_active,omitempty"`
+	RateLimit *int64         `json:"rate_limit,omitempty"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
+	// ExpiresAt is not in the server's update schema (kept for compatibility;
+	// the server ignores it — update expiry is not currently supported).
+	ExpiresAt *string `json:"expires_at,omitempty"`
 }
 
 // APIKey is the metadata for a key (no secret). APIKeyResponse in the API.
@@ -37,13 +44,14 @@ type APIKey struct {
 	Prefix      string   `json:"prefix,omitempty"`
 	Permissions []string `json:"permissions,omitempty"`
 	OrgID       string   `json:"org_id,omitempty"`
-	Enabled     bool     `json:"enabled,omitempty"`
 	CreatedAt   string   `json:"created_at,omitempty"`
 	ExpiresAt   string   `json:"expires_at,omitempty"`
-	LastUsedAt  string   `json:"last_used_at,omitempty"`
-	IsActive    bool     `json:"is_active,omitempty"`
-	LastUsed    string   `json:"last_used,omitempty"`
-	RateLimit   int64    `json:"rate_limit,omitempty"`
+	// IsActive/LastUsed/RateLimit are the fields the server actually sends
+	// (APIKeyResponse marks them required). They replace the earlier `enabled`
+	// and `last_used_at`, which the server never sent — those were always zero.
+	IsActive  bool   `json:"is_active,omitempty"`
+	LastUsed  string `json:"last_used,omitempty"`
+	RateLimit int64  `json:"rate_limit,omitempty"`
 }
 
 // APIKeyWithToken is the create response, which includes the secret exactly
