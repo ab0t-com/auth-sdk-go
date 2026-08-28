@@ -201,7 +201,7 @@ type ValidateAPIKeyRequest struct {
 // APIKeyValidation is the result of validating a service API key.
 //
 // POST /auth/validate-api-key returns the SAME schema as /auth/validate-token
-// (TokenValidationResponse on both backends), so this type mirrors Actor: it
+// (TokenValidationResponse), so this type mirrors Actor: it
 // carries email/audience/expiry and the delegation fields, because a service
 // account CAN act on another principal's behalf (an on-behalf-of / act-as key).
 // An earlier revision modeled only valid/user_id/org_id/permissions and read the
@@ -263,7 +263,7 @@ type PermissionDecision struct {
 	Source               string   `json:"source,omitempty"`
 	EffectivePermissions []string `json:"effective_permissions,omitempty"`
 	// Scope reports how broadly the grant matched (e.g. object-scoped vs
-	// wider); returned by the goauth check response.
+	// wider); returned by the permission check response.
 	Scope string `json:"scope,omitempty"`
 }
 

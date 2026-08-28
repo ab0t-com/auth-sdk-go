@@ -48,7 +48,7 @@ type RecentAlertsResponse struct {
 type HealthCheckResponse struct {
 	Status  string `json:"status"`
 	Version string `json:"version,omitempty"`
-	// Timestamp is a Unix epoch (seconds, fractional). Both backends return it as
+	// Timestamp is a Unix epoch (seconds, fractional). The service returns it as
 	// a JSON NUMBER — modeling it as a string made encoding/json fail the whole
 	// /health decode.
 	Timestamp         float64         `json:"timestamp,omitempty"`
@@ -58,7 +58,7 @@ type HealthCheckResponse struct {
 	Enterprise        json.RawMessage `json:"enterprise,omitempty"`
 	OAuth21           json.RawMessage `json:"oauth21,omitempty"`
 	ZanzibarMigration json.RawMessage `json:"zanzibar_migration,omitempty"`
-	// goauth-only fields.
+	// Additional operational fields some auth-service versions include.
 	Checks         json.RawMessage `json:"checks,omitempty"`
 	Runtime        json.RawMessage `json:"runtime,omitempty"`
 	Service        string          `json:"service,omitempty"`

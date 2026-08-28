@@ -4,8 +4,7 @@ The exact JSON shapes the ab0t auth service sends and expects, for teams buildin
 client (not using `auth-sdk-go`). If you hand-rolled a client because the SDK was thin, this is what
 to conform to — no Go source required.
 
-**Verified** against the live Python service (`https://auth.service.ab0t.com/openapi.json`) **and**
-goauth (`http://localhost:8028/openapi.json`) on **2026-08-28**. Where the two differ, it is noted.
+**Verified** against the live auth service (`https://auth.service.ab0t.com`) on **2026-08-28**.
 Fuller background: `tickets/20260827_sdk_contract_drift/` and `tickets/20260828_client_setup_feedback/`.
 
 > **Read the "Traps" section at the bottom first if you are debugging** — every item there is a bug a
@@ -15,7 +14,7 @@ Fuller background: `tickets/20260827_sdk_contract_drift/` and `tickets/20260828_
 
 ## 1. Token validation — `POST /auth/validate-token` **and** `POST /auth/validate-api-key`
 
-**Both endpoints return the SAME shape** (`TokenValidationResponse`) on both backends. A service API
+**Both endpoints return the SAME shape** (`TokenValidationResponse`). A service API
 key is not a lesser citizen — it carries the same fields, including delegation.
 
 ```json
@@ -55,8 +54,8 @@ key is not a lesser citizen — it carries the same fields, including delegation
 user. Model `is_delegation`/`acting_as`/`delegation_scope`/`delegation_chain` on **both** validation
 paths, or you cannot tell an on-behalf-of call from a direct one (and your audit trail is wrong).
 
-> goauth marks `permissions`, `is_delegation`, `delegation_scope`, `delegation_chain` **required**
-> (always sent); Python marks only `valid` required but sends the rest in practice. Treat all as
+> Only `valid` is guaranteed present; the service may mark the delegation fields required in some
+> versions (always sent). Treat all as
 > present-or-null and you are safe on both.
 
 ---
@@ -119,7 +118,7 @@ refreshing.** (Source: server investigation, `tickets/20260828_client_setup_feed
 - For a cross-service target (e.g. `aud=<engine>`): `<engine>` must be provisioned as the org's
   `service_audience`, or a token-exchange targeting it is rejected `invalid_target`.
 
-Full mechanism + fix status: `auth/output/tickets/20260828_local_audience_root_and_goauth_parity/`.
+This is a server-side concern; it is tracked internally.
 
 ---
 

@@ -333,3 +333,16 @@ func (c *Client) SAMLAnalytics(ctx context.Context, callerToken string) (*SAMLAn
 	}
 	return &out, nil
 }
+
+// SAMLServiceProviderMetadata returns this service's SAML SP metadata document
+// (XML). GET /saml/sp/metadata.
+func (c *Client) SAMLServiceProviderMetadata(ctx context.Context) (string, error) {
+	return c.getString(ctx, "/saml/sp/metadata", "")
+}
+
+// SAMLInitiateSLO initiates SAML Single Logout for the caller's session and
+// returns the raw response (typically a redirect target or XML).
+// POST /saml/slo/initiate.
+func (c *Client) SAMLInitiateSLO(ctx context.Context, callerToken string) (string, error) {
+	return c.doRaw(ctx, "POST", "/saml/slo/initiate", "", nil, callerToken)
+}

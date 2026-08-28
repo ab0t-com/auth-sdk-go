@@ -166,13 +166,17 @@ type OrganizationInvite struct {
 
 // InvitationListItem is one entry from GET /organizations/{org_id}/invitations.
 type InvitationListItem struct {
-	ID        string `json:"id"`
-	Email     string `json:"email"`
-	Role      string `json:"role,omitempty"`
-	Status    string `json:"status,omitempty"`
-	InvitedBy string `json:"invited_by,omitempty"`
-	CreatedAt string `json:"created_at,omitempty"`
-	ExpiresAt string `json:"expires_at,omitempty"`
+	ID          string   `json:"id"`
+	Email       string   `json:"email"`
+	Role        string   `json:"role,omitempty"`
+	Status      string   `json:"status,omitempty"`
+	InvitedBy   string   `json:"invited_by,omitempty"`
+	Permissions []string `json:"permissions,omitempty"`
+	TeamID      string   `json:"team_id,omitempty"`
+	CreatedAt   string   `json:"created_at,omitempty"`
+	ExpiresAt   string   `json:"expires_at,omitempty"`
+	UsedAt      string   `json:"used_at,omitempty"`
+	CancelledAt string   `json:"cancelled_at,omitempty"`
 }
 
 // OrgSession is one active session row.
@@ -490,6 +494,16 @@ func (c *Client) UpdateTeamMemberRole(ctx context.Context, teamID, userID string
 func (c *Client) GetTeamPermissions(ctx context.Context, teamID, callerToken string) (*TeamPermissionsResponse, error) {
 	var out TeamPermissionsResponse
 	if err := c.doGet(ctx, "/teams/"+url.PathEscape(teamID)+"/permissions", &out, callerToken); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// GetInvitation fetches one pending invitation.
+// GET /organizations/{org_id}/invitations/{invitation_id}.
+func (c *Client) GetInvitation(ctx context.Context, orgID, invitationID, callerToken string) (*InvitationListItem, error) {
+	var out InvitationListItem
+	if err := c.doGet(ctx, "/organizations/"+url.PathEscape(orgID)+"/invitations/"+url.PathEscape(invitationID), &out, callerToken); err != nil {
 		return nil, err
 	}
 	return &out, nil

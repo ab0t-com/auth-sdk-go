@@ -7,7 +7,7 @@ caller sees), classified **internal vs external**, so consumers know what breaks
 (`github.com/ab0t-com/auth-sdk-go`, its own GitHub repo). Any change to a request/response type or
 to a method's behaviour is therefore an **EXTERNAL / client-visible** change. There is no
 "internal-only" contract change in this module — a caller in another team feels all of them. Server
-implementation details (Python vs goauth) are internal to the *server*, not to this SDK.
+The auth service's own implementation details are internal to the server, not to this SDK, and are not documented here.
 
 ---
 
@@ -48,10 +48,9 @@ All entries are **EXTERNAL** (client-visible). Ticket: `tickets/20260827_sdk_con
   dropping server data now surface it.
 
 ### Deferred — a genuine backend DIVERGENCE, not a clean change (documented, NOT applied)
-- **`UpdateOrganization` return type** — the two backends disagree: **Python returns `MessageResponse`,
-  goauth returns the full `OrgResponse`**. Changing the SDK's return type would be wrong on one backend,
-  so it is NOT changed here. Kept as `*MessageResponse` (correct for current-primary Python). Revisit
-  when goauth becomes primary or Python converges. Tracked: `tickets/20260827_sdk_contract_drift/` F-10.
+- **`UpdateOrganization` return type** — the service's response for this call varies by version (some
+  return a message, some the full organization). To decode safely everywhere, the SDK keeps the return
+  type as `*MessageResponse`. Revisit if the service converges on returning the full organization.
 
 ---
 

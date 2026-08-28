@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""field-drift.py — the SDK<->auth-server contract gate: FIELDS *and* VALUES, both backends.
+"""field-drift.py — the SDK<->auth-service contract gate: FIELDS *and* VALUES.
 
 Supersedes the name-based `field-coverage.py`. Three checks the earlier gates could not do:
 
@@ -14,10 +14,10 @@ Supersedes the name-based `field-coverage.py`. Three checks the earlier gates co
   3. REQUIRED-MISSING — a field the schema marks *required* that the SDK type lacks (response =
      data the server always sends and the SDK drops; request = a body the server rejects).
 
-    make field-drift            # both backends (Python live + goauth)
+    make field-drift            # check the live auth service
     make field-drift-strict     # exit 1 on any non-allowlisted required-missing OR type mismatch
     python3 scripts/field-drift.py --spec /tmp/openapi.json
-    python3 scripts/field-drift.py --python-url ... --goauth-url ...
+    python3 scripts/field-drift.py --url ... [--alt-url ...]
 
 Dependency-free (stdlib only), like the SDK and `spec-coverage.py`. Exit 0 (a scoreboard) unless
 --strict. Derived from tickets/20260827_sdk_contract_drift/{opaudit,typeaudit}.py.
@@ -25,15 +25,17 @@ Dependency-free (stdlib only), like the SDK and `spec-coverage.py`. Exit 0 (a sc
 from __future__ import annotations
 import argparse, glob, json, os, re, sys, urllib.request
 
-PYTHON_URL = "https://auth.service.ab0t.com/openapi.json"
-GOAUTH_URL = "http://localhost:8028/openapi.json"
+AUTH_URL = "https://auth.service.ab0t.com/openapi.json"
+# Optional second spec to also check (e.g. a staging/candidate deployment).
+# Not set by default; supply via --alt-url or the AUTH_ALT_SPEC_URL env var.
+ALT_URL = os.environ.get("AUTH_ALT_SPEC_URL", "")
 
 # --- Allowlist: known, TRACKED gaps that must not fail --strict while remediation is in flight.
 # Each entry keeps a (method-or-struct, field) out of the gate. Wildcards: ("METHOD","*") allows a
 # whole method; ("*","field") allows a field everywhere. Every entry MUST cite its tracking finding.
 #
 # EMPTY as of 2026-08-28: the F-04/F-09/F-12 fixes plus the F-10 per-domain response-strip pass
-# (ticket 20260827_sdk_contract_drift) closed every gate-worthy gap on BOTH backends, so there is
+# (ticket 20260827_sdk_contract_drift) closed every gate-worthy gap, so there is
 # nothing to allow. Keeping it empty means any NEW required-field or type regression fails --strict
 # immediately. Add an entry ONLY for a deliberately-deferred gap, with its ticket reference, e.g.:
 #     KNOWN_FIELD_GAPS.add(("SomeMethod", "*"))  # F-XX, tracked in children/NN_domain.md
@@ -316,10 +318,10 @@ def check(spec_path: str, sdk_dir: str, label: str, strict: bool) -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Field+type contract gate vs both auth backends.")
-    ap.add_argument("--spec", help="a saved openapi.json (skips fetching both backends)")
-    ap.add_argument("--python-url", default=PYTHON_URL)
-    ap.add_argument("--goauth-url", default=GOAUTH_URL)
+    ap = argparse.ArgumentParser(description="Field+type contract gate vs the live auth service.")
+    ap.add_argument("--spec", help="a saved openapi.json (skips fetching the live spec)")
+    ap.add_argument("--url", default=AUTH_URL, help="the auth service openapi.json")
+    ap.add_argument("--alt-url", default=ALT_URL, help="optional second spec to also check")
     ap.add_argument("--sdk", default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     ap.add_argument("--strict", action="store_true",
                     help="exit 1 if any non-allowlisted required-missing OR type mismatch remains")
@@ -336,7 +338,10 @@ def main() -> int:
     reached = 0
     tmp = "/tmp/auth-field-drift"
     os.makedirs(tmp, exist_ok=True)
-    for label, url in (("python", args.python_url), ("goauth", args.goauth_url)):
+    targets = [("auth service", args.url)]
+    if args.alt_url:
+        targets.append(("alt", args.alt_url))
+    for label, url in targets:
         dest = os.path.join(tmp, f"{label}.json")
         if fetch(url, dest):
             reached += 1
@@ -344,7 +349,7 @@ def main() -> int:
         else:
             print(f"    (skipped {label}: not reachable — {url})", file=sys.stderr)
     if reached == 0:
-        print("!! neither backend reachable; pass --spec <saved openapi.json> to run offline.",
+        print("!! auth service spec not reachable; pass --spec <saved openapi.json> to run offline.",
               file=sys.stderr)
     return rc
 

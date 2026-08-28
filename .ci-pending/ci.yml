@@ -69,11 +69,10 @@ jobs:
   # class the Go tests alone cannot: a response type that silently drops or mis-types
   # a field the live server actually sends. `field-drift.py` is stdlib-only Python, so
   # no setup-python action is needed (ubuntu-latest ships python3) — consistent with
-  # this workflow's no-third-party-actions rule. goauth is localhost-only and is
-  # checked in dev (`make field-drift`); CI enforces against the live PUBLIC server.
+  # this workflow's no-third-party-actions rule. CI enforces against the live auth service.
   contract-drift:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: field-drift (live public auth spec)
-        run: python3 scripts/field-drift.py --python-url https://auth.service.ab0t.com --strict
+        run: python3 scripts/field-drift.py --url https://auth.service.ab0t.com/openapi.json --strict

@@ -304,15 +304,17 @@ func (c *Client) authorizeOnResource(ctx context.Context, token, action string, 
 	if actor == nil || !actor.Valid {
 		return false, nil
 	}
-	// 2. Ask the PDP the resource-scoped question. The empty caller token falls
-	// back to the configured service key. Fail closed on any error.
+	// 2. Ask the PDP the resource-scoped question, authenticating as the same
+	// credential being authorized (the subject checks their own access — this
+	// needs no separate service key; passing "" would fall back to the configured
+	// service key and 401 when none is set). Fail closed on any error.
 	dec, err := c.CheckPermission(ctx, PermissionCheckRequest{
 		UserID:       actor.UserID,
 		OrgID:        actor.OrgID,
 		Permission:   action,
 		ResourceType: resource.Type,
 		ResourceID:   resource.ID,
-	}, "")
+	}, token)
 	if err != nil {
 		return false, err
 	}

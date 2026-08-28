@@ -13,7 +13,7 @@ import (
 
 // F-01: a resource-scoped Authorize must ask the resource-aware PDP and must NOT
 // be answerable by a backend whose validate-token ignores the resource. This
-// simulates goauth: validate-token allows on the permission alone (ignores the
+// simulates a deployment whose validate-token ignores the resource: it allows on the
 // resource), while /permissions/check enforces the resource. A correct
 // Authorize must deny on a different resource.
 func TestAuthorize_ResourceScoped_RoutesToPDP_AndFailsClosed(t *testing.T) {
@@ -26,6 +26,11 @@ func TestAuthorize_ResourceScoped_RoutesToPDP_AndFailsClosed(t *testing.T) {
 			writeJSON(w, http.StatusOK, Actor{Valid: true, UserID: "u1", OrgID: "o1"})
 		case "/permissions/check":
 			checkHits++
+			// The PDP call must authenticate as the caller credential (regression
+			// guard for the live 401: passing "" fell back to an unset service key).
+			if r.Header.Get("Authorization") == "" && r.Header.Get("X-API-Key") == "" {
+				t.Errorf("F-01: resource-scoped PDP call carried no caller credential")
+			}
 			var req PermissionCheckRequest
 			_ = json.NewDecoder(r.Body).Decode(&req)
 			// Only w1 is granted; w2 is not. The PDP honors the resource.
@@ -96,7 +101,7 @@ func TestAuthorize_ResourceScoped_InvalidToken_Denies(t *testing.T) {
 	}
 }
 
-// F-02: the delegation fields both backends return must survive decode into Actor.
+// F-02: the delegation fields the service returns must survive decode into Actor.
 func TestActor_DecodesDelegationFields(t *testing.T) {
 	body := `{"valid":true,"user_id":"u1","org_id":"o1","is_delegation":true,` +
 		`"acting_as":"u2","delegation_scope":["world.read"],"delegation_chain":["u2","u1"]}`
@@ -162,7 +167,7 @@ func TestCreateNetworkPolicyRequest_MarshalsRequiredFields(t *testing.T) {
 // F-05/F-08: /health fields the server returns must survive decode, and the
 // phantom 'components' must be gone from the type.
 func TestHealthCheckResponse_DecodesServerFields(t *testing.T) {
-	// timestamp is a real numeric epoch — the value both backends actually send.
+	// timestamp is a real numeric epoch — the value the service actually sends.
 	body := `{"status":"ok","version":"1","timestamp":1787879913.98,"checks":{"db":"ok"},` +
 		`"uptime_sec":12.5,"service":"auth","dependencies":{"redis":"ok"}}`
 	var hr HealthCheckResponse
@@ -175,7 +180,7 @@ func TestHealthCheckResponse_DecodesServerFields(t *testing.T) {
 	}
 }
 
-// F-09: /auth/validate-api-key returns TokenValidationResponse on both backends,
+// F-09: /auth/validate-api-key returns TokenValidationResponse,
 // so APIKeyValidation must surface the failure reason from the "error" wire field
 // (previously read from a "reason" field the server never sends, so it was always
 // empty) and must model delegation (a service account can act on another's behalf).
@@ -185,7 +190,7 @@ func TestValidateAPIKey_DecodesErrorAndDelegation(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		// The shared TokenValidationResponse shape, as both backends emit it.
+		// The shared TokenValidationResponse shape the service emits.
 		writeJSON(w, http.StatusOK, map[string]any{
 			"valid":            true,
 			"user_id":          "svc1",

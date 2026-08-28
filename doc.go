@@ -52,6 +52,8 @@
 //	                SSO sessions/config/domains, attribute mappings, JIT, stats
 //	API keys:       List/Create/Get/Update/DeleteAPIKey (CreateServiceAccount)
 //	Delegation:     Grant/Revoke/Check/ListDelegation
+//	Provisioning:   SCIM 2.0 users/groups + Schemas/ResourceTypes/ServiceProviderConfig,
+//	                HRIS and SCIM connection management (see scim.go, hris.go)
 //	Admin:          password policy, JWKS rotate/revoke/generate/activate/cleanup,
 //	                circuit breakers, elevate privileges, audit, emergency revoke
 //	Super-admin:    time-bound Grant/Revoke/Extend/Approve + active-grants/audit

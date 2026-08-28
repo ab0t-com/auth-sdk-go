@@ -55,17 +55,14 @@ type APIKey struct {
 }
 
 // APIKeyWithToken is the create response, which includes the secret exactly
-// once (APIKeyWithToken in the API). Token has the "ab0t_sk_" prefix.
+// once. It embeds APIKey (id, name, permissions, created_at, expires_at,
+// rate_limit) and adds the secret.
 type APIKeyWithToken struct {
 	APIKey
-	Token       string   `json:"token"`
-	CreatedAt   string   `json:"created_at,omitempty"`
-	ExpiresAt   string   `json:"expires_at,omitempty"`
-	ID          string   `json:"id,omitempty"`
-	Key         string   `json:"key,omitempty"`
-	Name        string   `json:"name,omitempty"`
-	Permissions []string `json:"permissions,omitempty"`
-	RateLimit   int64    `json:"rate_limit,omitempty"`
+	// Token is the secret key (prefix "ab0t_sk_"), returned exactly once at
+	// creation. The wire field is `key` — the service does not send `token`, so an
+	// earlier revision that tagged this `json:"token"` never populated it.
+	Token string `json:"key,omitempty"`
 }
 
 // ===================== Models: delegation =====================

@@ -314,3 +314,32 @@ func (c *Client) ListNetworkViolations(ctx context.Context, callerToken string) 
 	}
 	return &out, nil
 }
+
+// AccessCheckResponse is the result of a network access-check.
+type AccessCheckResponse struct {
+	Status           string   `json:"status"`
+	Enforced         bool     `json:"enforced"`
+	NetworkZone      string   `json:"network_zone"`
+	OrgID            string   `json:"org_id,omitempty"`
+	PermissionsScope []string `json:"permissions_scope,omitempty"`
+}
+
+// NetworkAccessCheck reports how network policy applies to the caller's current
+// request (IP/zone/enforcement). GET /network-policy/access-check.
+func (c *Client) NetworkAccessCheck(ctx context.Context, callerToken string) (*AccessCheckResponse, error) {
+	var out AccessCheckResponse
+	if err := c.doGet(ctx, "/network-policy/access-check", &out, callerToken); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// EvaluateNetworkAccess performs a network access-check via POST (same decision,
+// POST form). POST /network-policy/access-check.
+func (c *Client) EvaluateNetworkAccess(ctx context.Context, callerToken string) (*AccessCheckResponse, error) {
+	var out AccessCheckResponse
+	if err := c.doJSON(ctx, "POST", "/network-policy/access-check", nil, &out, callerToken); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

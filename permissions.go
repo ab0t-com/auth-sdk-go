@@ -677,3 +677,19 @@ func (r CheckPermissionRequest) checkTypedIDs() error {
 	}
 	return nil
 }
+
+// DeleteRelationshipByObject deletes a single relationship named by its object
+// path plus the relation/subject in the body.
+// DELETE /zanzibar/stores/{store_id}/relationships/{object_type}/{object_id}.
+func (c *Client) DeleteRelationshipByObject(ctx context.Context, storeID, objectType, objectID, relation, subject, callerToken string) (*WriteOperationResponse, error) {
+	body := struct {
+		Relation string `json:"relation"`
+		Subject  string `json:"subject"`
+	}{Relation: relation, Subject: subject}
+	path := zanzibarBase(storeID) + "/relationships/" + url.PathEscape(objectType) + "/" + url.PathEscape(objectID)
+	var out WriteOperationResponse
+	if err := c.doJSON(ctx, "DELETE", path, body, &out, callerToken); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

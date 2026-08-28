@@ -11,7 +11,7 @@ help:
 	@echo "check   - fmt-check + vet + test + stdlib-only assertion (what CI runs)"
 	@echo "spec    - fetch the live OpenAPI spec to /tmp/auth-openapi.json"
 	@echo "drift   - check this SDK's PATHS against the LIVE OpenAPI spec"
-	@echo "field-drift - check FIELDS+VALUES vs both backends (operation-based, type-aware)"
+	@echo "field-drift - check FIELDS+VALUES vs the live auth service (operation-based, type-aware)"
 	@echo "release - VERSION=x.y.z  bump, tag and push a release (see RELEASING.md)"
 
 .PHONY: test
@@ -51,8 +51,8 @@ drift:
 # request/response SHAPES and VALUES match. field-drift closes that: it matches each method by
 # ROUTE (verb+path) to the server schema and diffs the Go type at the call site — catching the
 # NAME-MISMATCH class (Actor <-> TokenValidationResponse) AND TYPE mismatches (a numeric field
-# typed as a Go string, which fails the whole decode). Runs against BOTH backends (Python +
-# goauth). Supersedes the name-based scripts/field-coverage.py. See tickets/20260827_sdk_contract_drift.
+# typed as a Go string, which fails the whole decode). Runs against the live auth service.
+# Supersedes the name-based scripts/field-coverage.py.
 .PHONY: field-drift
 field-drift:
 	python3 scripts/field-drift.py

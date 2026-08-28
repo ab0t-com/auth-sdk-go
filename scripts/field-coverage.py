@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SUPERSEDED by scripts/field-drift.py (operation-based, type-aware, both backends).
+# SUPERSEDED by scripts/field-drift.py (operation-based, type-aware).
 # Retained for reference; `make field-drift` now runs field-drift.py. This name-based checker is
 # a LOWER BOUND (blind to the name-mismatch class, e.g. Actor<->TokenValidationResponse).
 """field-coverage.py — FIELD-level drift between this SDK and the auth OpenAPI.
@@ -12,9 +12,9 @@ delegation field, and `GET /health` surfaced 2 of 13 fields. This tool closes th
 blind spot: it compares the json tags on the SDK's Go structs against the
 `properties` of the OpenAPI schema of the same name.
 
-    make field-drift                    # both backends
+    make field-drift                    # check the live auth service
     python3 scripts/field-coverage.py --spec /tmp/openapi.json
-    python3 scripts/field-coverage.py --python-url ... --goauth-url ...
+    (deprecated — use scripts/field-drift.py)
 
 It reports, per struct that shares a name with a schema:
   REQ-MISSING   a field the schema marks *required* that the Go struct lacks
@@ -44,7 +44,7 @@ import sys
 import urllib.request
 
 PYTHON_URL = "https://auth.service.ab0t.com/openapi.json"
-GOAUTH_URL = "http://localhost:8028/openapi.json"
+ALT_URL = os.environ.get("AUTH_ALT_SPEC_URL", "")
 
 # Field-level divergences known and tracked in tickets/20260827_sdk_contract_drift.
 # Each entry is (GoStructName, "field") -> keeps it out of the --strict gate while
@@ -203,7 +203,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--spec", help="a saved openapi.json (skips fetching)")
     ap.add_argument("--python-url", default=PYTHON_URL)
-    ap.add_argument("--goauth-url", default=GOAUTH_URL)
+    ap.add_argument("--alt-url", default=ALT_URL)
     ap.add_argument("--sdk", default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     ap.add_argument("--strict", action="store_true",
                     help="exit 1 if any non-allowlisted REQ-MISSING remains")
@@ -215,7 +215,7 @@ def main() -> int:
     else:
         tmp = "/tmp/auth-field-cov"
         os.makedirs(tmp, exist_ok=True)
-        for label, url in (("python", args.python_url), ("goauth", args.goauth_url)):
+        for label, url in (("auth service", args.python_url), ("alt", args.alt_url)):
             dest = os.path.join(tmp, f"{label}.json")
             if fetch(url, dest):
                 rc |= check(dest, args.sdk, label, args.strict)
