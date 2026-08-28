@@ -446,11 +446,11 @@ func TestQuotasReportsSystem(t *testing.T) {
 	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/quotas/my-usage":
-			writeJSON(w, 200, QuotaUsageResponse{Tier: "pro", Usage: []QuotaUsageItem{{ResourceType: "api_keys", Used: 1, Limit: 10}}})
+			writeJSON(w, 200, QuotaUsageResponse{Tier: "pro", Usage: map[string]int64{"api_keys": 1}, Limits: map[string]int64{"api_keys": 10}})
 		case "/quotas/check/api_keys":
 			writeJSON(w, 200, QuotaCheckResponse{Allowed: true})
 		case "/quotas/tiers":
-			writeJSON(w, 200, QuotaTiersResponse{Tiers: []QuotaTier{{Name: "free"}}})
+			writeJSON(w, 200, QuotaTiersResponse{Tiers: map[string]QuotaTierLimits{"free": {MaxAPIKeysPerOrg: 5}}})
 		case "/reports":
 			if r.Method == "POST" {
 				writeJSON(w, 201, LeakReportSubmissionResponse{ReportID: "r1"})

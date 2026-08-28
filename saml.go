@@ -2,6 +2,7 @@ package authclient
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 )
 
@@ -50,10 +51,11 @@ type SAMLServiceProviderConfig struct {
 
 // SAMLSPRegistrationResponse is the result of registering a service provider.
 type SAMLSPRegistrationResponse struct {
-	SPID        string `json:"sp_id"`
-	EntityID    string `json:"entity_id,omitempty"`
-	MetadataURL string `json:"metadata_url,omitempty"`
-	Message     string `json:"message,omitempty"`
+	SPID               string   `json:"sp_id"`
+	EntityID           string   `json:"entity_id,omitempty"`
+	MetadataURL        string   `json:"metadata_url,omitempty"`
+	Message            string   `json:"message,omitempty"`
+	ComplianceFindings []string `json:"compliance_findings,omitempty"`
 }
 
 // SAMLServiceProvider is a registered service provider (detail view).
@@ -70,20 +72,42 @@ type SAMLServiceProvider struct {
 
 // SAMLSPDetailResponse wraps a service-provider detail.
 type SAMLSPDetailResponse struct {
-	ServiceProvider SAMLServiceProvider `json:"service_provider"`
+	ServiceProvider             SAMLServiceProvider `json:"service_provider"`
+	AllowedBindings             []string            `json:"allowed_bindings,omitempty"`
+	AssertionConsumerServiceURL string              `json:"assertion_consumer_service_url,omitempty"`
+	AttributeMapping            map[string]string   `json:"attribute_mapping,omitempty"`
+	AttributesMapping           map[string]string   `json:"attributes_mapping,omitempty"`
+	Certificate                 string              `json:"certificate,omitempty"`
+	CreatedAt                   string              `json:"created_at,omitempty"`
+	Description                 string              `json:"description,omitempty"`
+	EntityID                    string              `json:"entity_id,omitempty"`
+	IdPEntityID                 string              `json:"idp_entity_id,omitempty"`
+	IdPSloURL                   string              `json:"idp_slo_url,omitempty"`
+	MetadataURL                 string              `json:"metadata_url,omitempty"`
+	Name                        string              `json:"name,omitempty"`
+	NameIDFormat                string              `json:"name_id_format,omitempty"`
+	OrgID                       string              `json:"org_id,omitempty"`
+	SingleLogoutServiceURL      string              `json:"single_logout_service_url,omitempty"`
+	Status                      string              `json:"status,omitempty"`
+	UpdatedAt                   string              `json:"updated_at,omitempty"`
+	WantAssertionsEncrypted     bool                `json:"want_assertions_encrypted,omitempty"`
+	WantAssertionsSigned        bool                `json:"want_assertions_signed,omitempty"`
+	X509Cert                    string              `json:"x509_cert,omitempty"`
 }
 
 // SAMLSPListResponse lists registered service providers.
 type SAMLSPListResponse struct {
 	ServiceProviders []SAMLServiceProvider `json:"service_providers"`
 	Total            int                   `json:"total,omitempty"`
+	Count            int64                 `json:"count,omitempty"`
 }
 
 // SAMLSPUpdateResponse is the result of updating a service provider.
 type SAMLSPUpdateResponse struct {
-	SPID    string `json:"sp_id,omitempty"`
-	Message string `json:"message,omitempty"`
-	Success bool   `json:"success,omitempty"`
+	SPID     string `json:"sp_id,omitempty"`
+	Message  string `json:"message,omitempty"`
+	Success  bool   `json:"success,omitempty"`
+	EntityID string `json:"entity_id,omitempty"`
 }
 
 // SAMLSession is one active SAML session.
@@ -97,11 +121,13 @@ type SAMLSession struct {
 // SAMLSessionListResponse lists active SAML sessions.
 type SAMLSessionListResponse struct {
 	Sessions []SAMLSession `json:"sessions"`
+	Count    int64         `json:"count,omitempty"`
 }
 
 // SAMLAttributeMappingResponse is the SAML attribute-mapping configuration.
 type SAMLAttributeMappingResponse struct {
 	Mappings map[string]string `json:"mappings"`
+	Format   string            `json:"format,omitempty"`
 }
 
 // SAMLAttributeMappingUpdate is the body for PUT /saml/attributes/mappings.
@@ -120,21 +146,30 @@ type SAMLCertificate struct {
 
 // SAMLCertificateStatusResponse reports certificate status.
 type SAMLCertificateStatusResponse struct {
-	Certificates []SAMLCertificate `json:"certificates"`
+	Certificates      []SAMLCertificate `json:"certificates"`
+	CertificateStatus json.RawMessage   `json:"certificate_status,omitempty"`
+	SigningEnabled    bool              `json:"signing_enabled,omitempty"`
 }
 
 // SAMLCertificateGenerateResponse is the result of generating a certificate.
 type SAMLCertificateGenerateResponse struct {
-	Certificate string `json:"certificate,omitempty"`
-	Fingerprint string `json:"fingerprint,omitempty"`
-	Message     string `json:"message,omitempty"`
+	Certificate   string `json:"certificate,omitempty"`
+	Fingerprint   string `json:"fingerprint,omitempty"`
+	Message       string `json:"message,omitempty"`
+	CertificateID string `json:"certificate_id,omitempty"`
+	ExpiresAt     string `json:"expires_at,omitempty"`
 }
 
 // SAMLAnalyticsResponse reports SAML usage analytics.
 type SAMLAnalyticsResponse struct {
-	TotalLogins    int            `json:"total_logins,omitempty"`
-	ActiveSessions int            `json:"active_sessions,omitempty"`
-	Stats          map[string]any `json:"stats,omitempty"`
+	TotalLogins             int            `json:"total_logins,omitempty"`
+	ActiveSessions          int            `json:"active_sessions,omitempty"`
+	Stats                   map[string]any `json:"stats,omitempty"`
+	AuthenticationsThisWeek int64          `json:"authentications_this_week,omitempty"`
+	AuthenticationsToday    int64          `json:"authentications_today,omitempty"`
+	RecentActivity          []string       `json:"recent_activity,omitempty"`
+	TopServiceProviders     []string       `json:"top_service_providers,omitempty"`
+	TotalSps                int64          `json:"total_sps,omitempty"`
 }
 
 // ---- IdP / SP browser flows ----

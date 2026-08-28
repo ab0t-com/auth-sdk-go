@@ -56,6 +56,8 @@ type PasswordReset struct {
 type PasswordResetResponse struct {
 	Message string `json:"message,omitempty"`
 	Success bool   `json:"success,omitempty"`
+	Detail  string `json:"detail,omitempty"`
+	Note    string `json:"note,omitempty"`
 }
 
 // PasswordResetConfirm is the body for POST /users/reset-password and
@@ -69,6 +71,7 @@ type PasswordResetConfirm struct {
 type PasswordResetConfirmResponse struct {
 	Message string `json:"message,omitempty"`
 	Success bool   `json:"success,omitempty"`
+	Detail  string `json:"detail,omitempty"`
 }
 
 // ---- Self-service ----
@@ -187,6 +190,7 @@ type SelfDeleteResponse struct {
 	Success bool   `json:"success,omitempty"`
 	Message string `json:"message,omitempty"`
 	UserID  string `json:"user_id,omitempty"`
+	Detail  string `json:"detail,omitempty"`
 }
 
 // DeleteCurrentUser IRREVERSIBLY deletes the authenticated caller's own account.

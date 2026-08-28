@@ -66,22 +66,31 @@ type UpdateNetworkPolicyRequest struct {
 
 // NetworkPolicyCreateResponse is the result of creating a network policy.
 type NetworkPolicyCreateResponse struct {
-	PolicyID string `json:"policy_id"`
-	Message  string `json:"message,omitempty"`
+	PolicyID  string `json:"policy_id"`
+	Message   string `json:"message,omitempty"`
+	Action    string `json:"action,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+	Name      string `json:"name,omitempty"`
+	OrgID     string `json:"org_id,omitempty"`
+	Status    string `json:"status,omitempty"`
 }
 
 // NetworkPolicyListResponse lists network policies.
 type NetworkPolicyListResponse struct {
 	Policies []NetworkPolicy `json:"policies"`
 	Total    int             `json:"total,omitempty"`
+	Count    int64           `json:"count,omitempty"`
 }
 
 // NetworkPolicyStatusResponse is the generic status envelope for
 // update/delete/override/allowlist mutations.
 type NetworkPolicyStatusResponse struct {
-	Success bool   `json:"success,omitempty"`
-	Message string `json:"message,omitempty"`
-	Status  string `json:"status,omitempty"`
+	Success    bool   `json:"success,omitempty"`
+	Message    string `json:"message,omitempty"`
+	Status     string `json:"status,omitempty"`
+	EntryID    string `json:"entry_id,omitempty"`
+	OverrideID string `json:"override_id,omitempty"`
+	PolicyID   string `json:"policy_id,omitempty"`
 }
 
 // PolicyEvaluationResult is the result of GET /network-policy/evaluate.
@@ -104,6 +113,8 @@ type EmergencyOverrideCreateResponse struct {
 	OverrideID string `json:"override_id"`
 	ExpiresAt  string `json:"expires_at,omitempty"`
 	Message    string `json:"message,omitempty"`
+	Status     string `json:"status,omitempty"`
+	UserID     string `json:"user_id,omitempty"`
 }
 
 // NetworkOverride is one emergency override entry.
@@ -118,6 +129,7 @@ type NetworkOverride struct {
 // OverrideListResponse lists emergency overrides.
 type OverrideListResponse struct {
 	Overrides []NetworkOverride `json:"overrides"`
+	Count     int64             `json:"count,omitempty"`
 }
 
 // TempAllowlistRequest is the body for POST /network-policy/temp-allowlist.
@@ -132,6 +144,9 @@ type TempAllowlistCreateResponse struct {
 	EntryID   string `json:"entry_id"`
 	ExpiresAt string `json:"expires_at,omitempty"`
 	Message   string `json:"message,omitempty"`
+	IPAddress string `json:"ip_address,omitempty"`
+	Status    string `json:"status,omitempty"`
+	UserID    string `json:"user_id,omitempty"`
 }
 
 // TempAllowlistEntry is one temporary allowlist entry.
@@ -146,6 +161,7 @@ type TempAllowlistEntry struct {
 // TempAllowlistListResponse lists temporary allowlist entries.
 type TempAllowlistListResponse struct {
 	Entries []TempAllowlistEntry `json:"entries"`
+	Count   int64                `json:"count,omitempty"`
 }
 
 // NetworkViolation is one recorded access violation.
@@ -161,6 +177,7 @@ type NetworkViolation struct {
 type ViolationListResponse struct {
 	Violations []NetworkViolation `json:"violations"`
 	Total      int                `json:"total,omitempty"`
+	Count      int64              `json:"count,omitempty"`
 }
 
 // ---- Operations ----

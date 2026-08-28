@@ -2,6 +2,7 @@ package authclient
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 )
 
@@ -21,7 +22,13 @@ type EventTypeInfo struct {
 
 // EventTypesResponse lists available event types.
 type EventTypesResponse struct {
-	EventTypes []EventTypeInfo `json:"event_types"`
+	EventTypes     []EventTypeInfo `json:"event_types"`
+	APIKeys        json.RawMessage `json:"api_keys,omitempty"`
+	Authentication json.RawMessage `json:"authentication,omitempty"`
+	Organization   json.RawMessage `json:"organization,omitempty"`
+	Permissions    json.RawMessage `json:"permissions,omitempty"`
+	Providers      json.RawMessage `json:"providers,omitempty"`
+	Security       json.RawMessage `json:"security,omitempty"`
 }
 
 // EventFilter narrows which events a subscription receives.
@@ -102,9 +109,10 @@ type EventSubscription struct {
 
 // EventSubscriptionListResponse lists webhook subscriptions.
 type EventSubscriptionListResponse struct {
-	Items     []EventSubscription `json:"items"`
-	Count     int                 `json:"count,omitempty"`
-	NextToken string              `json:"next_token,omitempty"`
+	Items        []EventSubscription `json:"items"`
+	Count        int                 `json:"count,omitempty"`
+	NextToken    string              `json:"next_token,omitempty"`
+	TotalScanned int64               `json:"total_scanned,omitempty"`
 }
 
 // EventSubscriptionTestResponse is the result of a test delivery.

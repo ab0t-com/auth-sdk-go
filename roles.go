@@ -29,6 +29,7 @@ type RegisteredServicesResponse struct {
 type ValidPermissionsResponse struct {
 	Permissions []string `json:"permissions"`
 	Total       int      `json:"total,omitempty"`
+	Service     string   `json:"service,omitempty"`
 }
 
 // PermissionValidationRequest is the body for POST /permissions/registry/validate.
@@ -38,15 +39,21 @@ type PermissionValidationRequest struct {
 
 // PermissionValidationResponse is the result of validating permission strings.
 type PermissionValidationResponse struct {
-	Valid   bool            `json:"valid"`
-	Results map[string]bool `json:"results,omitempty"`
-	Invalid []string        `json:"invalid,omitempty"`
+	Valid    bool            `json:"valid"`
+	Results  map[string]bool `json:"results,omitempty"`
+	Invalid  []string        `json:"invalid,omitempty"`
+	Action   string          `json:"action,omitempty"`
+	Reason   string          `json:"reason,omitempty"`
+	Resource string          `json:"resource,omitempty"`
+	Service  string          `json:"service,omitempty"`
+	Type     string          `json:"type,omitempty"`
 }
 
 // RegistryStatsResponse is the result of GET /permissions/registry/stats.
 type RegistryStatsResponse struct {
-	TotalServices    int `json:"total_services,omitempty"`
-	TotalPermissions int `json:"total_permissions,omitempty"`
+	TotalServices    int      `json:"total_services,omitempty"`
+	TotalPermissions int      `json:"total_permissions,omitempty"`
+	ServicesList     []string `json:"services_list,omitempty"`
 }
 
 // ServicePermissionRegister is the body for POST /permissions/registry/register.
@@ -58,9 +65,14 @@ type ServicePermissionRegister struct {
 
 // ServicePermissionResponse is the result of registering service permissions.
 type ServicePermissionResponse struct {
-	Service     string   `json:"service,omitempty"`
-	Permissions []string `json:"permissions,omitempty"`
-	Message     string   `json:"message,omitempty"`
+	Service      string   `json:"service,omitempty"`
+	Permissions  []string `json:"permissions,omitempty"`
+	Message      string   `json:"message,omitempty"`
+	Actions      int64    `json:"actions,omitempty"`
+	Reason       string   `json:"reason,omitempty"`
+	RegisteredAt string   `json:"registered_at,omitempty"`
+	Resources    int64    `json:"resources,omitempty"`
+	Valid        bool     `json:"valid,omitempty"`
 }
 
 // ---- Grant / revoke (RBAC) ----

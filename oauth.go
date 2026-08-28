@@ -2,6 +2,7 @@ package authclient
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 )
 
@@ -75,6 +76,16 @@ type ClientRegistrationResponse struct {
 	ClientName              string   `json:"client_name,omitempty"`
 	GrantTypes              []string `json:"grant_types,omitempty"`
 	Scope                   string   `json:"scope,omitempty"`
+	ClientURI               string   `json:"client_uri,omitempty"`
+	Contacts                []string `json:"contacts,omitempty"`
+	LogoURI                 string   `json:"logo_uri,omitempty"`
+	OrgID                   string   `json:"org_id,omitempty"`
+	PolicyURI               string   `json:"policy_uri,omitempty"`
+	ResponseTypes           []string `json:"response_types,omitempty"`
+	SoftwareID              string   `json:"software_id,omitempty"`
+	SoftwareVersion         string   `json:"software_version,omitempty"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method,omitempty"`
+	TOSURI                  string   `json:"tos_uri,omitempty"`
 }
 
 // VerifyEmailSendRequest is the body for POST /auth/verify-email/send.
@@ -90,19 +101,42 @@ type VerifyEmailConfirmRequest struct {
 
 // OpenIDConfiguration is the OIDC discovery document.
 type OpenIDConfiguration struct {
-	Issuer                            string   `json:"issuer"`
-	AuthorizationEndpoint             string   `json:"authorization_endpoint,omitempty"`
-	TokenEndpoint                     string   `json:"token_endpoint,omitempty"`
-	UserinfoEndpoint                  string   `json:"userinfo_endpoint,omitempty"`
-	JWKSURI                           string   `json:"jwks_uri,omitempty"`
-	RegistrationEndpoint              string   `json:"registration_endpoint,omitempty"`
-	ScopesSupported                   []string `json:"scopes_supported,omitempty"`
-	ResponseTypesSupported            []string `json:"response_types_supported,omitempty"`
-	GrantTypesSupported               []string `json:"grant_types_supported,omitempty"`
-	SubjectTypesSupported             []string `json:"subject_types_supported,omitempty"`
-	IDTokenSigningAlgValuesSupported  []string `json:"id_token_signing_alg_values_supported,omitempty"`
-	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported,omitempty"`
-	CodeChallengeMethodsSupported     []string `json:"code_challenge_methods_supported,omitempty"`
+	Issuer                                     string          `json:"issuer"`
+	AuthorizationEndpoint                      string          `json:"authorization_endpoint,omitempty"`
+	TokenEndpoint                              string          `json:"token_endpoint,omitempty"`
+	UserinfoEndpoint                           string          `json:"userinfo_endpoint,omitempty"`
+	JWKSURI                                    string          `json:"jwks_uri,omitempty"`
+	RegistrationEndpoint                       string          `json:"registration_endpoint,omitempty"`
+	ScopesSupported                            []string        `json:"scopes_supported,omitempty"`
+	ResponseTypesSupported                     []string        `json:"response_types_supported,omitempty"`
+	GrantTypesSupported                        []string        `json:"grant_types_supported,omitempty"`
+	SubjectTypesSupported                      []string        `json:"subject_types_supported,omitempty"`
+	IDTokenSigningAlgValuesSupported           []string        `json:"id_token_signing_alg_values_supported,omitempty"`
+	TokenEndpointAuthMethodsSupported          []string        `json:"token_endpoint_auth_methods_supported,omitempty"`
+	CodeChallengeMethodsSupported              []string        `json:"code_challenge_methods_supported,omitempty"`
+	AuthorizationDetailsTypesSupported         []string        `json:"authorization_details_types_supported,omitempty"`
+	ClaimsParameterSupported                   bool            `json:"claims_parameter_supported,omitempty"`
+	ClaimsSupported                            []string        `json:"claims_supported,omitempty"`
+	DPoPSigningAlgValuesSupported              []string        `json:"dpop_signing_alg_values_supported,omitempty"`
+	Features                                   json.RawMessage `json:"features,omitempty"`
+	IntrospectionEndpoint                      string          `json:"introspection_endpoint,omitempty"`
+	IntrospectionEndpointAuthMethodsSupported  []string        `json:"introspection_endpoint_auth_methods_supported,omitempty"`
+	JWKSRefreshInterval                        int64           `json:"jwks_refresh_interval,omitempty"`
+	JWKSSupportsProviderAggregation            bool            `json:"jwks_supports_provider_aggregation,omitempty"`
+	KeyRotationInterval                        int64           `json:"key_rotation_interval,omitempty"`
+	OpPolicyURI                                string          `json:"op_policy_uri,omitempty"`
+	OpTOSURI                                   string          `json:"op_tos_uri,omitempty"`
+	PushedAuthorizationRequestEndpoint         string          `json:"pushed_authorization_request_endpoint,omitempty"`
+	RequestParameterSupported                  bool            `json:"request_parameter_supported,omitempty"`
+	RequestURIParameterSupported               bool            `json:"request_uri_parameter_supported,omitempty"`
+	RequirePushedAuthorizationRequests         bool            `json:"require_pushed_authorization_requests,omitempty"`
+	RequireRequestURIRegistration              bool            `json:"require_request_uri_registration,omitempty"`
+	ResponseModesSupported                     []string        `json:"response_modes_supported,omitempty"`
+	RevocationEndpoint                         string          `json:"revocation_endpoint,omitempty"`
+	RevocationEndpointAuthMethodsSupported     []string        `json:"revocation_endpoint_auth_methods_supported,omitempty"`
+	ServiceDocumentation                       string          `json:"service_documentation,omitempty"`
+	TokenEndpointAuthSigningAlgValuesSupported []string        `json:"token_endpoint_auth_signing_alg_values_supported,omitempty"`
+	UiLocalesSupported                         []string        `json:"ui_locales_supported,omitempty"`
 }
 
 // AuthorizationServerMetadata is the RFC 8414 OAuth metadata document.

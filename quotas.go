@@ -14,6 +14,10 @@ import (
 // ===================== Quotas / tiers =====================
 
 // QuotaUsageItem is usage for one resource type.
+//
+// Deprecated: /quotas/my-usage does not return an array of these. The server
+// returns object maps keyed by resource type (see QuotaUsageResponse). Retained
+// for source compatibility; no endpoint decodes into it.
 type QuotaUsageItem struct {
 	ResourceType string  `json:"resource_type"`
 	Used         int64   `json:"used"`
@@ -22,10 +26,16 @@ type QuotaUsageItem struct {
 	Percent      float64 `json:"percent,omitempty"`
 }
 
-// QuotaUsageResponse is the result of GET /quotas/my-usage.
+// QuotaUsageResponse is the result of GET /quotas/my-usage. The server returns
+// object MAPS keyed by resource type (not arrays); an earlier revision modeled
+// `usage` as a slice, so the real object body failed to decode entirely.
 type QuotaUsageResponse struct {
-	Tier  string           `json:"tier,omitempty"`
-	Usage []QuotaUsageItem `json:"usage"`
+	UserID string `json:"user_id,omitempty"`
+	Tier   string `json:"tier,omitempty"`
+	// Usage/Limits/Percentages are keyed by resource type.
+	Usage       map[string]int64   `json:"usage,omitempty"`
+	Limits      map[string]int64   `json:"limits,omitempty"`
+	Percentages map[string]float64 `json:"percentages,omitempty"`
 }
 
 // QuotaCheckResponse is the result of GET /quotas/check/{resource_type}.
@@ -35,6 +45,9 @@ type QuotaCheckResponse struct {
 	Used         int64  `json:"used,omitempty"`
 	Limit        int64  `json:"limit,omitempty"`
 	Remaining    int64  `json:"remaining,omitempty"`
+	CurrentUsage int64  `json:"current_usage,omitempty"`
+	Message      string `json:"message,omitempty"`
+	Tier         string `json:"tier,omitempty"`
 }
 
 // QuotaTier describes one subscription tier.
@@ -44,9 +57,25 @@ type QuotaTier struct {
 	Price  string           `json:"price,omitempty"`
 }
 
-// QuotaTiersResponse is the result of GET /quotas/tiers.
+// QuotaTierLimits is the per-tier limit set the server returns as the value of
+// each entry in QuotaTiersResponse.Tiers.
+type QuotaTierLimits struct {
+	MaxOrganizationsPerUser int64 `json:"max_organizations_per_user,omitempty"`
+	MaxUsersPerOrg          int64 `json:"max_users_per_org,omitempty"`
+	MaxTeamsPerOrg          int64 `json:"max_teams_per_org,omitempty"`
+	MaxAPIKeysPerOrg        int64 `json:"max_api_keys_per_org,omitempty"`
+	MaxPermissionsPerUser   int64 `json:"max_permissions_per_user,omitempty"`
+	MaxDelegationsPerUser   int64 `json:"max_delegations_per_user,omitempty"`
+	StorageQuotaMB          int64 `json:"storage_quota_mb,omitempty"`
+	APIRateLimitPerHour     int64 `json:"api_rate_limit_per_hour,omitempty"`
+}
+
+// QuotaTiersResponse is the result of GET /quotas/tiers. `tiers` is an object
+// keyed by tier name (not an array); an earlier revision modeled it as a slice,
+// so the real object body failed to decode entirely.
 type QuotaTiersResponse struct {
-	Tiers []QuotaTier `json:"tiers"`
+	Tiers      map[string]QuotaTierLimits `json:"tiers,omitempty"`
+	UpgradeURL string                     `json:"upgrade_url,omitempty"`
 }
 
 // MyQuotaUsage returns the caller's quota usage. GET /quotas/my-usage.

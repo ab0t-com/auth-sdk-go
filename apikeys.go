@@ -41,13 +41,23 @@ type APIKey struct {
 	CreatedAt   string   `json:"created_at,omitempty"`
 	ExpiresAt   string   `json:"expires_at,omitempty"`
 	LastUsedAt  string   `json:"last_used_at,omitempty"`
+	IsActive    bool     `json:"is_active,omitempty"`
+	LastUsed    string   `json:"last_used,omitempty"`
+	RateLimit   int64    `json:"rate_limit,omitempty"`
 }
 
 // APIKeyWithToken is the create response, which includes the secret exactly
 // once (APIKeyWithToken in the API). Token has the "ab0t_sk_" prefix.
 type APIKeyWithToken struct {
 	APIKey
-	Token string `json:"token"`
+	Token       string   `json:"token"`
+	CreatedAt   string   `json:"created_at,omitempty"`
+	ExpiresAt   string   `json:"expires_at,omitempty"`
+	ID          string   `json:"id,omitempty"`
+	Key         string   `json:"key,omitempty"`
+	Name        string   `json:"name,omitempty"`
+	Permissions []string `json:"permissions,omitempty"`
+	RateLimit   int64    `json:"rate_limit,omitempty"`
 }
 
 // ===================== Models: delegation =====================
@@ -69,6 +79,7 @@ type DelegationResponse struct {
 	Permissions  []string `json:"permissions,omitempty"`
 	ExpiresAt    string   `json:"expires_at,omitempty"`
 	Message      string   `json:"message,omitempty"`
+	Success      bool     `json:"success,omitempty"`
 }
 
 // DelegationCheckResponse is the result of GET /delegation/check/{target_user_id}.
@@ -76,6 +87,8 @@ type DelegationCheckResponse struct {
 	CanDelegate bool     `json:"can_delegate"`
 	Permissions []string `json:"permissions,omitempty"`
 	Reason      string   `json:"reason,omitempty"`
+	Allowed     bool     `json:"allowed,omitempty"`
+	Scope       []string `json:"scope,omitempty"`
 }
 
 // DelegationEntry is one delegation grant from GET /delegation/list/{user_id}.

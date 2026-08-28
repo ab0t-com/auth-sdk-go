@@ -308,9 +308,10 @@ type User struct {
 	Metadata      map[string]any         `json:"metadata,omitempty"`
 	// CreatedAt/UpdatedAt/LastLogin are returned by the user read endpoints
 	// (UserProfile / UserResponse). created_at is required on UserProfile.
-	CreatedAt string `json:"created_at,omitempty"`
-	UpdatedAt string `json:"updated_at,omitempty"`
-	LastLogin string `json:"last_login,omitempty"`
+	CreatedAt string   `json:"created_at,omitempty"`
+	UpdatedAt string   `json:"updated_at,omitempty"`
+	LastLogin string   `json:"last_login,omitempty"`
+	Roles     []string `json:"roles,omitempty"`
 }
 
 // UserOrganizationInfo is one membership entry (GET /users/me/organizations).
@@ -340,4 +341,10 @@ type Organization struct {
 	Timezone        string         `json:"timezone,omitempty"`
 	Settings        map[string]any `json:"settings,omitempty"`
 	Metadata        map[string]any `json:"metadata,omitempty"`
+	CreatedAt       string         `json:"created_at,omitempty"`
+	Industry        string         `json:"industry,omitempty"`
+	LogoURL         string         `json:"logo_url,omitempty"`
+	Size            string         `json:"size,omitempty"`
+	UpdatedAt       string         `json:"updated_at,omitempty"`
+	Website         string         `json:"website,omitempty"`
 }

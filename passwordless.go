@@ -2,6 +2,7 @@ package authclient
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 )
 
@@ -17,13 +18,17 @@ import (
 // WebAuthnConfigResponse is the result of
 // GET /auth/passwordless/webauthn/config.
 type WebAuthnConfigResponse struct {
-	RPID              string   `json:"rp_id,omitempty"`
-	RPName            string   `json:"rp_name,omitempty"`
-	Origin            string   `json:"origin,omitempty"`
-	Origins           []string `json:"origins,omitempty"`
-	AttestationFormat string   `json:"attestation,omitempty"`
-	UserVerification  string   `json:"user_verification,omitempty"`
-	Enabled           bool     `json:"enabled,omitempty"`
+	RPID                string          `json:"rp_id,omitempty"`
+	RPName              string          `json:"rp_name,omitempty"`
+	Origin              string          `json:"origin,omitempty"`
+	Origins             []string        `json:"origins,omitempty"`
+	AttestationFormat   string          `json:"attestation,omitempty"`
+	UserVerification    string          `json:"user_verification,omitempty"`
+	Enabled             bool            `json:"enabled,omitempty"`
+	Features            json.RawMessage `json:"features,omitempty"`
+	SupportedAlgorithms json.RawMessage `json:"supported_algorithms,omitempty"`
+	SupportedTransports []string        `json:"supported_transports,omitempty"`
+	Timeout             int64           `json:"timeout,omitempty"`
 }
 
 // WebAuthnRegistrationResult is returned when finishing a WebAuthn registration.
@@ -31,16 +36,19 @@ type WebAuthnRegistrationResult struct {
 	CredentialID string `json:"credential_id,omitempty"`
 	Success      bool   `json:"success,omitempty"`
 	Message      string `json:"message,omitempty"`
+	Verified     bool   `json:"verified,omitempty"`
 }
 
 // PasswordlessAuthResponse is the token payload returned by a successful
 // passwordless authentication (WebAuthn, magic link or recovery code).
 type PasswordlessAuthResponse struct {
-	AccessToken  string         `json:"access_token,omitempty"`
-	RefreshToken string         `json:"refresh_token,omitempty"`
-	TokenType    string         `json:"token_type,omitempty"`
-	ExpiresIn    int            `json:"expires_in,omitempty"`
-	User         *TokenUserInfo `json:"user,omitempty"`
+	AccessToken  string            `json:"access_token,omitempty"`
+	RefreshToken string            `json:"refresh_token,omitempty"`
+	TokenType    string            `json:"token_type,omitempty"`
+	ExpiresIn    int               `json:"expires_in,omitempty"`
+	User         *TokenUserInfo    `json:"user,omitempty"`
+	CustomClaims map[string]string `json:"custom_claims,omitempty"`
+	RedirectURL  string            `json:"redirect_url,omitempty"`
 }
 
 // WebAuthnCredential is a registered passkey/credential.
@@ -56,6 +64,7 @@ type WebAuthnCredential struct {
 // WebAuthnCredentialListResponse lists a user's registered credentials.
 type WebAuthnCredentialListResponse struct {
 	Credentials []WebAuthnCredential `json:"credentials"`
+	Count       int64                `json:"count,omitempty"`
 }
 
 // WebAuthnCredentialUpdate renames a credential.
@@ -72,9 +81,13 @@ type MagicLinkSendResponse struct {
 
 // MagicLinkConfigResponse is the result of GET .../magic-link/config.
 type MagicLinkConfigResponse struct {
-	Enabled    bool `json:"enabled,omitempty"`
-	TTLSeconds int  `json:"ttl_seconds,omitempty"`
-	MaxActive  int  `json:"max_active,omitempty"`
+	Enabled         bool  `json:"enabled,omitempty"`
+	TTLSeconds      int   `json:"ttl_seconds,omitempty"`
+	MaxActive       int   `json:"max_active,omitempty"`
+	CooldownSeconds int64 `json:"cooldown_seconds,omitempty"`
+	ExpiryMinutes   int64 `json:"expiry_minutes,omitempty"`
+	MaxAttempts     int64 `json:"max_attempts,omitempty"`
+	RequireCode     bool  `json:"require_code,omitempty"`
 }
 
 // ActiveMagicLink describes one outstanding magic link.
@@ -87,21 +100,31 @@ type ActiveMagicLink struct {
 
 // ActiveMagicLinksResponse lists a user's active magic links.
 type ActiveMagicLinksResponse struct {
-	Links []ActiveMagicLink `json:"links"`
+	Links       []ActiveMagicLink `json:"links"`
+	ActiveLinks json.RawMessage   `json:"active_links,omitempty"`
+	Count       int64             `json:"count,omitempty"`
 }
 
 // MagicLinkAnalyticsResponse is the result of GET .../magic-link/analytics.
 type MagicLinkAnalyticsResponse struct {
-	Sent     int            `json:"sent,omitempty"`
-	Verified int            `json:"verified,omitempty"`
-	Expired  int            `json:"expired,omitempty"`
-	Stats    map[string]any `json:"stats,omitempty"`
+	Sent                    int            `json:"sent,omitempty"`
+	Verified                int            `json:"verified,omitempty"`
+	Expired                 int            `json:"expired,omitempty"`
+	Stats                   map[string]any `json:"stats,omitempty"`
+	AverageVerificationTime int64          `json:"average_verification_time,omitempty"`
+	RecentActivity          []string       `json:"recent_activity,omitempty"`
+	TopDomains              []string       `json:"top_domains,omitempty"`
+	TotalSentThisWeek       int64          `json:"total_sent_this_week,omitempty"`
+	TotalSentToday          int64          `json:"total_sent_today,omitempty"`
+	TotalVerified           int64          `json:"total_verified,omitempty"`
 }
 
 // RecoveryCodesResponse is the result of generating MFA recovery codes.
 type RecoveryCodesResponse struct {
-	Codes     []string `json:"codes"`
-	Generated int      `json:"generated,omitempty"`
+	Codes         []string `json:"codes"`
+	Generated     int      `json:"generated,omitempty"`
+	Message       string   `json:"message,omitempty"`
+	RecoveryCodes []string `json:"recovery_codes,omitempty"`
 }
 
 // Device is one entry returned by the device listing.
@@ -116,6 +139,7 @@ type Device struct {
 // DeviceListResponse lists a user's known devices.
 type DeviceListResponse struct {
 	Devices []Device `json:"devices"`
+	Count   int64    `json:"count,omitempty"`
 }
 
 // ---- WebAuthn operations ----

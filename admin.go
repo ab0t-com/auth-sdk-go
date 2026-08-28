@@ -2,6 +2,7 @@ package authclient
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 )
 
@@ -28,8 +29,9 @@ type PasswordPolicyRequest struct {
 
 // PasswordPolicySetResponse is the result of setting a password policy.
 type PasswordPolicySetResponse struct {
-	Message string                 `json:"message,omitempty"`
-	Policy  *PasswordPolicyRequest `json:"policy,omitempty"`
+	Message  string                 `json:"message,omitempty"`
+	Policy   *PasswordPolicyRequest `json:"policy,omitempty"`
+	PolicyID string                 `json:"policy_id,omitempty"`
 }
 
 // PasswordPolicyGetResponse is the result of GET /admin/password-policy/{org_id}.
@@ -47,15 +49,19 @@ type ForcePasswordResetRequest struct {
 
 // ForcePasswordResetResponse is the result of forcing password resets.
 type ForcePasswordResetResponse struct {
-	Message       string `json:"message,omitempty"`
-	AffectedCount int    `json:"affected_count,omitempty"`
+	Message          string `json:"message,omitempty"`
+	AffectedCount    int    `json:"affected_count,omitempty"`
+	AffectedUsers    int64  `json:"affected_users,omitempty"`
+	GracePeriodHours int64  `json:"grace_period_hours,omitempty"`
 }
 
 // PasswordComplianceResponse is the result of GET /admin/reports/password-compliance.
 type PasswordComplianceResponse struct {
-	Compliant    int            `json:"compliant,omitempty"`
-	NonCompliant int            `json:"non_compliant,omitempty"`
-	Details      map[string]any `json:"details,omitempty"`
+	Compliant        int             `json:"compliant,omitempty"`
+	NonCompliant     int             `json:"non_compliant,omitempty"`
+	Details          map[string]any  `json:"details,omitempty"`
+	ComplianceReport json.RawMessage `json:"compliance_report,omitempty"`
+	OrgID            string          `json:"org_id,omitempty"`
 }
 
 // PasswordAgeUpdate is the body for POST /admin/users/password-age (test helper).
@@ -68,12 +74,14 @@ type PasswordAgeUpdate struct {
 type PasswordAgeUpdateResponse struct {
 	Message string `json:"message,omitempty"`
 	UserID  string `json:"user_id,omitempty"`
+	AgeDays int64  `json:"age_days,omitempty"`
 }
 
 // PasswordAuditEventsResponse is the result of GET /admin/audit/password-events.
 type PasswordAuditEventsResponse struct {
-	Events []map[string]any `json:"events"`
-	Total  int              `json:"total,omitempty"`
+	Events      []map[string]any `json:"events"`
+	Total       int              `json:"total,omitempty"`
+	AuditEvents json.RawMessage  `json:"audit_events,omitempty"`
 }
 
 // ===================== Models: JWKS admin =====================
@@ -85,15 +93,21 @@ type KeyRevocationRequest struct {
 
 // KeyRevocationResponse is the result of revoking a signing key.
 type KeyRevocationResponse struct {
-	Kid     string `json:"kid,omitempty"`
-	Revoked bool   `json:"revoked,omitempty"`
-	Message string `json:"message,omitempty"`
+	Kid               string          `json:"kid,omitempty"`
+	Revoked           bool            `json:"revoked,omitempty"`
+	Message           string          `json:"message,omitempty"`
+	NotificationsSent int64           `json:"notifications_sent,omitempty"`
+	ReplacementKey    json.RawMessage `json:"replacement_key,omitempty"`
+	RevokedAt         string          `json:"revoked_at,omitempty"`
+	Success           bool            `json:"success,omitempty"`
 }
 
 // RevokedKeysListResponse is the result of GET /admin/jwks/revoked.
 type RevokedKeysListResponse struct {
 	RevokedKeys []map[string]any `json:"revoked_keys"`
 	Total       int              `json:"total,omitempty"`
+	Count       int64            `json:"count,omitempty"`
+	RetrievedAt string           `json:"retrieved_at,omitempty"`
 }
 
 // KeyRotationRequest is the body for POST /admin/jwks/rotate.
@@ -104,20 +118,37 @@ type KeyRotationRequest struct {
 
 // KeyRotationResponse is the result of rotating signing keys.
 type KeyRotationResponse struct {
-	NewKid  string `json:"new_kid,omitempty"`
-	Message string `json:"message,omitempty"`
+	NewKid              string          `json:"new_kid,omitempty"`
+	Message             string          `json:"message,omitempty"`
+	Error               string          `json:"error,omitempty"`
+	NewKey              json.RawMessage `json:"new_key,omitempty"`
+	NextRotationDate    string          `json:"next_rotation_date,omitempty"`
+	Reason              string          `json:"reason,omitempty"`
+	RotationCompletedAt string          `json:"rotation_completed_at,omitempty"`
+	Success             bool            `json:"success,omitempty"`
 }
 
 // RotationStatusResponse is the result of GET /admin/jwks/rotation-status.
 type RotationStatusResponse struct {
-	Rotating    bool   `json:"rotating,omitempty"`
-	CurrentKid  string `json:"current_kid,omitempty"`
-	LastRotated string `json:"last_rotated,omitempty"`
+	Rotating               bool            `json:"rotating,omitempty"`
+	CurrentKid             string          `json:"current_kid,omitempty"`
+	LastRotated            string          `json:"last_rotated,omitempty"`
+	Configuration          json.RawMessage `json:"configuration,omitempty"`
+	KeyInventory           json.RawMessage `json:"key_inventory,omitempty"`
+	RotationCheck          json.RawMessage `json:"rotation_check,omitempty"`
+	RotationServiceHealthy bool            `json:"rotation_service_healthy,omitempty"`
+	StatusTimestamp        string          `json:"status_timestamp,omitempty"`
+	Warnings               []string        `json:"warnings,omitempty"`
 }
 
 // NextRotationResponse is the result of GET /admin/jwks/next-rotation.
 type NextRotationResponse struct {
-	NextRotation string `json:"next_rotation,omitempty"`
+	NextRotation      string `json:"next_rotation,omitempty"`
+	CurrentKeyAgeDays int64  `json:"current_key_age_days,omitempty"`
+	DaysUntilRotation int64  `json:"days_until_rotation,omitempty"`
+	NextRotationDate  string `json:"next_rotation_date,omitempty"`
+	RotationNeeded    bool   `json:"rotation_needed,omitempty"`
+	Timestamp         string `json:"timestamp,omitempty"`
 }
 
 // KeyGenerationRequest is the body for POST /admin/jwks/generate.
@@ -128,15 +159,21 @@ type KeyGenerationRequest struct {
 
 // KeyGenerateResponse is the result of generating a key.
 type KeyGenerateResponse struct {
-	Kid     string `json:"kid,omitempty"`
-	Message string `json:"message,omitempty"`
+	Kid       string `json:"kid,omitempty"`
+	Message   string `json:"message,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Success   bool   `json:"success,omitempty"`
 }
 
 // KeyActivateResponse is the result of POST /admin/jwks/activate/{kid}.
 type KeyActivateResponse struct {
-	Kid     string `json:"kid,omitempty"`
-	Active  bool   `json:"active,omitempty"`
-	Message string `json:"message,omitempty"`
+	Kid         string `json:"kid,omitempty"`
+	Active      bool   `json:"active,omitempty"`
+	Message     string `json:"message,omitempty"`
+	ActivatedAt string `json:"activated_at,omitempty"`
+	Success     bool   `json:"success,omitempty"`
 }
 
 // KeyCleanupRequest is the body for POST /admin/jwks/cleanup.
@@ -147,9 +184,15 @@ type KeyCleanupRequest struct {
 
 // KeyCleanupResponse is the result of cleaning up old keys.
 type KeyCleanupResponse struct {
-	RemovedCount int      `json:"removed_count,omitempty"`
-	RemovedKids  []string `json:"removed_kids,omitempty"`
-	Message      string   `json:"message,omitempty"`
+	RemovedCount    int             `json:"removed_count,omitempty"`
+	RemovedKids     []string        `json:"removed_kids,omitempty"`
+	Message         string          `json:"message,omitempty"`
+	DryRun          bool            `json:"dry_run,omitempty"`
+	Force           bool            `json:"force,omitempty"`
+	KeysCleaned     int64           `json:"keys_cleaned,omitempty"`
+	KeysIdentified  json.RawMessage `json:"keys_identified,omitempty"`
+	Timestamp       string          `json:"timestamp,omitempty"`
+	TotalKeysBefore int64           `json:"total_keys_before,omitempty"`
 }
 
 // ===================== Models: service accounts / elevation =====================
@@ -169,6 +212,9 @@ type ServiceAccountResponse struct {
 	APIKey      string   `json:"api_key,omitempty"`
 	Permissions []string `json:"permissions,omitempty"`
 	Message     string   `json:"message,omitempty"`
+	CreatedAt   string   `json:"created_at,omitempty"`
+	Email       string   `json:"email,omitempty"`
+	ID          string   `json:"id,omitempty"`
 }
 
 // ElevatePrivilegesRequest is the body for POST /admin/users/elevate-privileges.
@@ -181,17 +227,24 @@ type ElevatePrivilegesRequest struct {
 
 // ElevatePrivilegesResponse is the result of elevating a user's privileges.
 type ElevatePrivilegesResponse struct {
-	UserID    string   `json:"user_id,omitempty"`
-	Granted   []string `json:"granted,omitempty"`
-	ExpiresAt string   `json:"expires_at,omitempty"`
-	Message   string   `json:"message,omitempty"`
+	UserID                string   `json:"user_id,omitempty"`
+	Granted               []string `json:"granted,omitempty"`
+	ExpiresAt             string   `json:"expires_at,omitempty"`
+	Message               string   `json:"message,omitempty"`
+	ElevationExpiresAt    string   `json:"elevation_expires_at,omitempty"`
+	NewRole               string   `json:"new_role,omitempty"`
+	PasswordResetRequired bool     `json:"password_reset_required,omitempty"`
+	StricterPolicyApplied bool     `json:"stricter_policy_applied,omitempty"`
 }
 
 // ===================== Models: circuit breakers / audit / emergency =====================
 
 // CircuitBreakerStatusResponse is the result of GET /admin/circuit-breakers/status.
 type CircuitBreakerStatusResponse struct {
-	Breakers map[string]any `json:"breakers,omitempty"`
+	Breakers        map[string]any  `json:"breakers,omitempty"`
+	CircuitBreakers json.RawMessage `json:"circuit_breakers,omitempty"`
+	OverallHealth   json.RawMessage `json:"overall_health,omitempty"`
+	SLAImpact       json.RawMessage `json:"sla_impact,omitempty"`
 }
 
 // CircuitBreakerResetResponse is the result of resetting one breaker.
@@ -203,8 +256,11 @@ type CircuitBreakerResetResponse struct {
 
 // CircuitBreakerResetAllResponse is the result of resetting all breakers.
 type CircuitBreakerResetAllResponse struct {
-	ResetCount int    `json:"reset_count,omitempty"`
-	Message    string `json:"message,omitempty"`
+	ResetCount int             `json:"reset_count,omitempty"`
+	Message    string          `json:"message,omitempty"`
+	NewStatus  json.RawMessage `json:"new_status,omitempty"`
+	ResetBy    string          `json:"reset_by,omitempty"`
+	Warning    string          `json:"warning,omitempty"`
 }
 
 // RevocationAuditEntry is one entry from GET /admin/audit/revocations.
@@ -229,6 +285,12 @@ type EmergencyRevokeRequest struct {
 type EmergencyRevokeResponse struct {
 	RevokedCount int    `json:"revoked_count,omitempty"`
 	Message      string `json:"message,omitempty"`
+	IncidentID   string `json:"incident_id,omitempty"`
+	KeyID        string `json:"key_id,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+	RevokedAt    string `json:"revoked_at,omitempty"`
+	RevokedBy    string `json:"revoked_by,omitempty"`
+	Severity     string `json:"severity,omitempty"`
 }
 
 // ProviderStatusUpdateRequest is the body for POST /admin/providers/status.
@@ -240,9 +302,14 @@ type ProviderStatusUpdateRequest struct {
 
 // ProviderStatusUpdateResponse is the result of updating provider status.
 type ProviderStatusUpdateResponse struct {
-	ProviderID string `json:"provider_id,omitempty"`
-	Enabled    bool   `json:"enabled,omitempty"`
-	Message    string `json:"message,omitempty"`
+	ProviderID     string `json:"provider_id,omitempty"`
+	Enabled        bool   `json:"enabled,omitempty"`
+	Message        string `json:"message,omitempty"`
+	NewStatus      string `json:"new_status,omitempty"`
+	PreviousStatus string `json:"previous_status,omitempty"`
+	Reason         string `json:"reason,omitempty"`
+	StatusUpdated  bool   `json:"status_updated,omitempty"`
+	UpdatedAt      string `json:"updated_at,omitempty"`
 }
 
 // ===================== Models: super-admin =====================
@@ -258,11 +325,15 @@ type SuperAdminGrantRequestModel struct {
 
 // SuperAdminGrantResponse is the result of POST /super-admin/grant.
 type SuperAdminGrantResponse struct {
-	GrantID   string `json:"grant_id,omitempty"`
-	UserID    string `json:"user_id,omitempty"`
-	Status    string `json:"status,omitempty"`
-	ExpiresAt string `json:"expires_at,omitempty"`
-	Message   string `json:"message,omitempty"`
+	GrantID      string `json:"grant_id,omitempty"`
+	UserID       string `json:"user_id,omitempty"`
+	Status       string `json:"status,omitempty"`
+	ExpiresAt    string `json:"expires_at,omitempty"`
+	Message      string `json:"message,omitempty"`
+	ApprovalID   string `json:"approval_id,omitempty"`
+	Instructions string `json:"instructions,omitempty"`
+	SessionID    string `json:"session_id,omitempty"`
+	Success      bool   `json:"success,omitempty"`
 }
 
 // SuperAdminRevokeRequestModel is the body for POST /super-admin/revoke.
@@ -274,9 +345,11 @@ type SuperAdminRevokeRequestModel struct {
 
 // SuperAdminRevokeResponse is the result of POST /super-admin/revoke.
 type SuperAdminRevokeResponse struct {
-	GrantID string `json:"grant_id,omitempty"`
-	Revoked bool   `json:"revoked,omitempty"`
-	Message string `json:"message,omitempty"`
+	GrantID   string `json:"grant_id,omitempty"`
+	Revoked   bool   `json:"revoked,omitempty"`
+	Message   string `json:"message,omitempty"`
+	RevokedAt string `json:"revoked_at,omitempty"`
+	Success   bool   `json:"success,omitempty"`
 }
 
 // SuperAdminExtendRequestModel is the body for POST /super-admin/extend.
@@ -291,12 +364,17 @@ type SuperAdminExtendResponse struct {
 	GrantID   string `json:"grant_id,omitempty"`
 	ExpiresAt string `json:"expires_at,omitempty"`
 	Message   string `json:"message,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Success   bool   `json:"success,omitempty"`
 }
 
 // SuperAdminActiveGrantsResponse is the result of GET /super-admin/active-grants.
 type SuperAdminActiveGrantsResponse struct {
-	Grants []map[string]any `json:"grants"`
-	Total  int              `json:"total,omitempty"`
+	Grants       []map[string]any `json:"grants"`
+	Total        int              `json:"total,omitempty"`
+	ActiveGrants json.RawMessage  `json:"active_grants,omitempty"`
+	Count        int64            `json:"count,omitempty"`
+	RetrievedAt  string           `json:"retrieved_at,omitempty"`
 }
 
 // ApprovalRequestModel is the body for POST /super-admin/approve.
@@ -310,6 +388,9 @@ type ApprovalRequestModel struct {
 type SuperAdminCleanupResponse struct {
 	CleanedCount int    `json:"cleaned_count,omitempty"`
 	Message      string `json:"message,omitempty"`
+	CleanupTime  string `json:"cleanup_time,omitempty"`
+	ExpiredCount int64  `json:"expired_count,omitempty"`
+	Success      bool   `json:"success,omitempty"`
 }
 
 // ===================== Admin: password policy =====================

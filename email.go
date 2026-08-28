@@ -2,6 +2,7 @@ package authclient
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 )
 
@@ -28,15 +29,22 @@ type EmailHistoryEntry struct {
 type EmailHistoryResponse struct {
 	Emails []EmailHistoryEntry `json:"emails"`
 	Total  int                 `json:"total,omitempty"`
+	Count  int64               `json:"count,omitempty"`
+	Items  json.RawMessage     `json:"items,omitempty"`
+	OrgID  string              `json:"org_id,omitempty"`
 }
 
 // EmailStatsResponse reports aggregate email statistics.
 type EmailStatsResponse struct {
-	Sent      int            `json:"sent,omitempty"`
-	Delivered int            `json:"delivered,omitempty"`
-	Failed    int            `json:"failed,omitempty"`
-	Bounced   int            `json:"bounced,omitempty"`
-	Stats     map[string]any `json:"stats,omitempty"`
+	Sent      int              `json:"sent,omitempty"`
+	Delivered int              `json:"delivered,omitempty"`
+	Failed    int              `json:"failed,omitempty"`
+	Bounced   int              `json:"bounced,omitempty"`
+	Stats     map[string]any   `json:"stats,omitempty"`
+	ByStatus  map[string]int64 `json:"by_status,omitempty"`
+	ByType    map[string]int64 `json:"by_type,omitempty"`
+	OrgID     string           `json:"org_id,omitempty"`
+	Total     int64            `json:"total,omitempty"`
 }
 
 // GlobalEmailConfigResponse is the system-wide email configuration.
@@ -46,6 +54,8 @@ type GlobalEmailConfigResponse struct {
 	FromName    string         `json:"from_name,omitempty"`
 	Configured  bool           `json:"configured,omitempty"`
 	Settings    map[string]any `json:"settings,omitempty"`
+	SafeMode    bool           `json:"safe_mode,omitempty"`
+	TestMode    bool           `json:"test_mode,omitempty"`
 }
 
 // TemplateTypeInfo describes one available email template type.

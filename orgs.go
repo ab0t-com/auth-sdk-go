@@ -2,6 +2,7 @@ package authclient
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 )
 
@@ -201,15 +202,19 @@ type SessionRevokeResponse struct {
 
 // Team is a team/group within an organization.
 type Team struct {
-	ID          string         `json:"id"`
-	OrgID       string         `json:"org_id,omitempty"`
-	Name        string         `json:"name"`
-	Slug        string         `json:"slug,omitempty"`
-	Description string         `json:"description,omitempty"`
-	ParentID    string         `json:"parent_id,omitempty"`
-	MemberCount int            `json:"member_count,omitempty"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
-	CreatedAt   string         `json:"created_at,omitempty"`
+	ID           string          `json:"id"`
+	OrgID        string          `json:"org_id,omitempty"`
+	Name         string          `json:"name"`
+	Slug         string          `json:"slug,omitempty"`
+	Description  string          `json:"description,omitempty"`
+	ParentID     string          `json:"parent_id,omitempty"`
+	MemberCount  int             `json:"member_count,omitempty"`
+	Metadata     map[string]any  `json:"metadata,omitempty"`
+	CreatedAt    string          `json:"created_at,omitempty"`
+	ParentTeamID string          `json:"parent_team_id,omitempty"`
+	Permissions  []string        `json:"permissions,omitempty"`
+	Settings     json.RawMessage `json:"settings,omitempty"`
+	UpdatedAt    string          `json:"updated_at,omitempty"`
 }
 
 // TeamCreate is the body for POST /organizations/{org_id}/teams.

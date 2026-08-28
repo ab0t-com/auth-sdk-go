@@ -2,6 +2,7 @@ package authclient
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 )
 
@@ -39,14 +40,23 @@ type ProviderConfigUpdate struct {
 
 // Provider is a provider configuration record (response shape is permissive).
 type Provider struct {
-	ID        string         `json:"id"`
-	Name      string         `json:"name,omitempty"`
-	Type      string         `json:"type,omitempty"`
-	Enabled   bool           `json:"enabled,omitempty"`
-	Priority  int            `json:"priority,omitempty"`
-	Domain    string         `json:"domain,omitempty"`
-	IssuerURL string         `json:"issuer_url,omitempty"`
-	Config    map[string]any `json:"config,omitempty"`
+	ID           string          `json:"id"`
+	Name         string          `json:"name,omitempty"`
+	Type         string          `json:"type,omitempty"`
+	Enabled      bool            `json:"enabled,omitempty"`
+	Priority     int             `json:"priority,omitempty"`
+	Domain       string          `json:"domain,omitempty"`
+	IssuerURL    string          `json:"issuer_url,omitempty"`
+	Config       map[string]any  `json:"config,omitempty"`
+	CreatedAt    string          `json:"created_at,omitempty"`
+	Description  string          `json:"description,omitempty"`
+	IsActive     bool            `json:"is_active,omitempty"`
+	IsDefault    bool            `json:"is_default,omitempty"`
+	Metadata     json.RawMessage `json:"metadata,omitempty"`
+	OrgID        string          `json:"org_id,omitempty"`
+	ProviderType string          `json:"provider_type,omitempty"`
+	Status       string          `json:"status,omitempty"`
+	UpdatedAt    string          `json:"updated_at,omitempty"`
 }
 
 // ProviderTestRequest is the body for POST /providers/test.
@@ -58,9 +68,12 @@ type ProviderTestRequest struct {
 
 // ProviderTestResponse is the result of a provider connectivity test.
 type ProviderTestResponse struct {
-	Success bool           `json:"success"`
-	Message string         `json:"message,omitempty"`
-	Details map[string]any `json:"details,omitempty"`
+	Success        bool            `json:"success"`
+	Message        string          `json:"message,omitempty"`
+	Details        map[string]any  `json:"details,omitempty"`
+	Error          string          `json:"error,omitempty"`
+	Metadata       json.RawMessage `json:"metadata,omitempty"`
+	ResponseTimeMs float64         `json:"response_time_ms,omitempty"`
 }
 
 // ===================== Models: federation =====================
@@ -79,17 +92,29 @@ type SSOSession struct {
 type SSOSessionListResponse struct {
 	Sessions []SSOSession `json:"sessions"`
 	Total    int          `json:"total,omitempty"`
+	Count    int64        `json:"count,omitempty"`
 }
 
 // SSOSessionCreateResponse is the result of POST /federation/sso/sessions.
 type SSOSessionCreateResponse struct {
-	Session   SSOSession `json:"session"`
-	SessionID string     `json:"session_id,omitempty"`
+	Session    SSOSession `json:"session"`
+	SessionID  string     `json:"session_id,omitempty"`
+	CreatedAt  string     `json:"created_at,omitempty"`
+	Domains    []string   `json:"domains,omitempty"`
+	ExpiresIn  int64      `json:"expires_in,omitempty"`
+	RememberMe bool       `json:"remember_me,omitempty"`
 }
 
 // SSOSessionDetailResponse is the result of GET /federation/sso/sessions/{id}.
 type SSOSessionDetailResponse struct {
-	Session SSOSession `json:"session"`
+	Session    SSOSession `json:"session"`
+	Active     bool       `json:"active,omitempty"`
+	CreatedAt  string     `json:"created_at,omitempty"`
+	Domains    []string   `json:"domains,omitempty"`
+	ExpiresAt  string     `json:"expires_at,omitempty"`
+	RememberMe bool       `json:"remember_me,omitempty"`
+	SessionID  string     `json:"session_id,omitempty"`
+	UserID     string     `json:"user_id,omitempty"`
 }
 
 // DomainTokenResponse is the result of POST /federation/sso/create-token.
@@ -97,13 +122,17 @@ type DomainTokenResponse struct {
 	Token     string `json:"token"`
 	Domain    string `json:"domain,omitempty"`
 	ExpiresIn int    `json:"expires_in,omitempty"`
+	TokenType string `json:"token_type,omitempty"`
 }
 
 // SSOPropagateResponse is the result of POST /federation/sso/propagate.
 type SSOPropagateResponse struct {
-	Success      bool     `json:"success,omitempty"`
-	PropagatedTo []string `json:"propagated_to,omitempty"`
-	Message      string   `json:"message,omitempty"`
+	Success           bool     `json:"success,omitempty"`
+	PropagatedTo      []string `json:"propagated_to,omitempty"`
+	Message           string   `json:"message,omitempty"`
+	PropagatedDomains []string `json:"propagated_domains,omitempty"`
+	SessionID         string   `json:"session_id,omitempty"`
+	Status            string   `json:"status,omitempty"`
 }
 
 // LogoutPropagationResponse is the result of POST /federation/sso/propagate-logout.
@@ -111,12 +140,19 @@ type LogoutPropagationResponse struct {
 	Success     bool     `json:"success,omitempty"`
 	LoggedOutOf []string `json:"logged_out_of,omitempty"`
 	Message     string   `json:"message,omitempty"`
+	SessionID   string   `json:"session_id,omitempty"`
+	Status      string   `json:"status,omitempty"`
 }
 
 // SSOConfigResponse is the result of GET /federation/sso/config.
 type SSOConfigResponse struct {
-	Enabled bool           `json:"enabled,omitempty"`
-	Config  map[string]any `json:"config,omitempty"`
+	Enabled            bool           `json:"enabled,omitempty"`
+	Config             map[string]any `json:"config,omitempty"`
+	AllowedDomains     []string       `json:"allowed_domains,omitempty"`
+	CookieDomain       string         `json:"cookie_domain,omitempty"`
+	MaxSessionDuration int64          `json:"max_session_duration,omitempty"`
+	RequireMFA         bool           `json:"require_mfa,omitempty"`
+	SessionTimeout     int64          `json:"session_timeout,omitempty"`
 }
 
 // SSOConfigUpdateResponse is the result of PUT /federation/sso/config.
@@ -134,16 +170,32 @@ type SSODomainConfigRequest struct {
 
 // SSODomainConfigResponse is one domain's SSO configuration.
 type SSODomainConfigResponse struct {
-	Domain     string         `json:"domain"`
-	ProviderID string         `json:"provider_id,omitempty"`
-	Enabled    bool           `json:"enabled,omitempty"`
-	Config     map[string]any `json:"config,omitempty"`
+	Domain              string          `json:"domain"`
+	ProviderID          string          `json:"provider_id,omitempty"`
+	Enabled             bool            `json:"enabled,omitempty"`
+	Config              map[string]any  `json:"config,omitempty"`
+	Active              bool            `json:"active,omitempty"`
+	AllowedAuthMethods  []string        `json:"allowed_auth_methods,omitempty"`
+	AllowedRedirectUrls []string        `json:"allowed_redirect_urls,omitempty"`
+	CreatedAt           string          `json:"created_at,omitempty"`
+	DisplayName         string          `json:"display_name,omitempty"`
+	EntityID            string          `json:"entity_id,omitempty"`
+	ExpiresAt           string          `json:"expires_at,omitempty"`
+	IPWhitelist         []string        `json:"ip_whitelist,omitempty"`
+	LoginCallbackURL    string          `json:"login_callback_url,omitempty"`
+	LogoutCallbackURL   string          `json:"logout_callback_url,omitempty"`
+	Metadata            json.RawMessage `json:"metadata,omitempty"`
+	RequireMFA          bool            `json:"require_mfa,omitempty"`
+	SessionTimeout      int64           `json:"session_timeout,omitempty"`
+	UpdatedAt           string          `json:"updated_at,omitempty"`
 }
 
 // SSODomainListResponse is the result of GET /federation/sso/domains.
 type SSODomainListResponse struct {
-	Domains []SSODomainConfigResponse `json:"domains"`
-	Total   int                       `json:"total,omitempty"`
+	Domains  []SSODomainConfigResponse `json:"domains"`
+	Total    int                       `json:"total,omitempty"`
+	Page     int64                     `json:"page,omitempty"`
+	PageSize int64                     `json:"page_size,omitempty"`
 }
 
 // AttributeMapping is one IdP attribute -> local attribute mapping.
@@ -159,12 +211,14 @@ type AttributeMapping struct {
 type AttributeMappingListResponse struct {
 	Mappings []AttributeMapping `json:"mappings"`
 	Total    int                `json:"total,omitempty"`
+	Count    int64              `json:"count,omitempty"`
 }
 
 // AttributeMappingCreateResponse is the result of POST /federation/attribute-mappings.
 type AttributeMappingCreateResponse struct {
-	Mapping AttributeMapping `json:"mapping"`
-	Message string           `json:"message,omitempty"`
+	Mapping   AttributeMapping `json:"mapping"`
+	Message   string           `json:"message,omitempty"`
+	MappingID string           `json:"mapping_id,omitempty"`
 }
 
 // JITConfigResponse is the result of GET /federation/jit/config (just-in-time provisioning).
@@ -173,14 +227,19 @@ type JITConfigResponse struct {
 	DefaultRole    string         `json:"default_role,omitempty"`
 	AllowedDomains []string       `json:"allowed_domains,omitempty"`
 	Config         map[string]any `json:"config,omitempty"`
+	AutoActivate   bool           `json:"auto_activate,omitempty"`
+	SyncAttributes bool           `json:"sync_attributes,omitempty"`
 }
 
 // FederationStatsResponse is the result of GET /federation/stats.
 type FederationStatsResponse struct {
-	ActiveSessions int            `json:"active_sessions,omitempty"`
-	Domains        int            `json:"domains,omitempty"`
-	Providers      int            `json:"providers,omitempty"`
-	Stats          map[string]any `json:"stats,omitempty"`
+	ActiveSessions int             `json:"active_sessions,omitempty"`
+	Domains        int             `json:"domains,omitempty"`
+	Providers      int             `json:"providers,omitempty"`
+	Stats          map[string]any  `json:"stats,omitempty"`
+	SAML           json.RawMessage `json:"saml,omitempty"`
+	SSO            json.RawMessage `json:"sso,omitempty"`
+	Webauthn       json.RawMessage `json:"webauthn,omitempty"`
 }
 
 // ===================== Providers =====================

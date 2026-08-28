@@ -53,6 +53,23 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - `ServiceDiscoveryResponse.Endpoints` and `.Links` **removed** (never populated).
   - *Migration:* stop referencing these fields; the real data is in the added fields below.
 
+### ⚠️ BREAKING (bugfix) — types corrected to the real wire values (F-12)
+
+These fields were typed as a kind the server never sends, so `encoding/json` failed the WHOLE
+response decode — the calls did not work at all. Correcting the type is a bugfix, but the Go field
+type changes, so callers that referenced these fields must adjust.
+
+- **`HealthCheckResponse.Timestamp`: `string` → `float64`.** `/health` (both backends) returns a
+  numeric Unix epoch (e.g. `1787879913.98`); as a `string` the whole `Health()`/`/health` decode
+  errored. *Migration:* treat `Timestamp` as a float epoch.
+- **`QuotaUsageResponse`: `Usage []QuotaUsageItem` → `Usage map[string]int64`** (plus new
+  `Limits map[string]int64`, `Percentages map[string]float64`, `UserID`). The server returns object
+  maps keyed by resource type, not an array; the old shape never decoded. `QuotaUsageItem` is
+  retained but deprecated (no endpoint decodes into it). *Migration:* index by resource type.
+- **`QuotaTiersResponse`: `Tiers []QuotaTier` → `Tiers map[string]QuotaTierLimits`** (plus
+  `UpgradeURL`). `tiers` is an object keyed by tier name. New `QuotaTierLimits` type. *Migration:*
+  index by tier name.
+
 ### Added (non-breaking)
 
 - **Delegation is now observable.** `Actor` gains `IsDelegation`, `ActingAs`,

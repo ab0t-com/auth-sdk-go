@@ -15,11 +15,15 @@ import (
 
 // JwksMetricsResponse reports JWKS operational metrics.
 type JwksMetricsResponse struct {
-	ActiveKeys   int            `json:"active_keys,omitempty"`
-	RevokedKeys  int            `json:"revoked_keys,omitempty"`
-	LastRotation string         `json:"last_rotation,omitempty"`
-	NextRotation string         `json:"next_rotation,omitempty"`
-	Metrics      map[string]any `json:"metrics,omitempty"`
+	ActiveKeys      int             `json:"active_keys,omitempty"`
+	RevokedKeys     int             `json:"revoked_keys,omitempty"`
+	LastRotation    string          `json:"last_rotation,omitempty"`
+	NextRotation    string          `json:"next_rotation,omitempty"`
+	Metrics         map[string]any  `json:"metrics,omitempty"`
+	Configuration   json.RawMessage `json:"configuration,omitempty"`
+	KeyMetrics      json.RawMessage `json:"key_metrics,omitempty"`
+	RotationHealth  json.RawMessage `json:"rotation_health,omitempty"`
+	RotationMetrics json.RawMessage `json:"rotation_metrics,omitempty"`
 }
 
 // AlertEntry is one recent operational alert.
@@ -32,16 +36,22 @@ type AlertEntry struct {
 
 // RecentAlertsResponse lists recent alerts.
 type RecentAlertsResponse struct {
-	Alerts []AlertEntry `json:"alerts"`
+	Alerts          []AlertEntry    `json:"alerts"`
+	TimeRange       json.RawMessage `json:"time_range,omitempty"`
+	TotalCount      int64           `json:"total_count,omitempty"`
+	UnresolvedCount int64           `json:"unresolved_count,omitempty"`
 }
 
 // HealthCheckResponse is the result of GET /health. Fields are the union across
 // auth backends; nested objects are left as raw JSON so callers can decode the
 // parts they need without this type tracking every backend's internal shape.
 type HealthCheckResponse struct {
-	Status            string          `json:"status"`
-	Version           string          `json:"version,omitempty"`
-	Timestamp         string          `json:"timestamp,omitempty"`
+	Status  string `json:"status"`
+	Version string `json:"version,omitempty"`
+	// Timestamp is a Unix epoch (seconds, fractional). Both backends return it as
+	// a JSON NUMBER — modeling it as a string made encoding/json fail the whole
+	// /health decode.
+	Timestamp         float64         `json:"timestamp,omitempty"`
 	Dependencies      json.RawMessage `json:"dependencies,omitempty"`
 	CircuitBreakers   json.RawMessage `json:"circuit_breakers,omitempty"`
 	Metrics           json.RawMessage `json:"metrics,omitempty"`
@@ -49,30 +59,55 @@ type HealthCheckResponse struct {
 	OAuth21           json.RawMessage `json:"oauth21,omitempty"`
 	ZanzibarMigration json.RawMessage `json:"zanzibar_migration,omitempty"`
 	// goauth-only fields.
-	Checks    json.RawMessage `json:"checks,omitempty"`
-	Runtime   json.RawMessage `json:"runtime,omitempty"`
-	Service   string          `json:"service,omitempty"`
-	UptimeSec float64         `json:"uptime_sec,omitempty"`
+	Checks         json.RawMessage `json:"checks,omitempty"`
+	Runtime        json.RawMessage `json:"runtime,omitempty"`
+	Service        string          `json:"service,omitempty"`
+	UptimeSec      float64         `json:"uptime_sec,omitempty"`
+	PasswordPolicy json.RawMessage `json:"password_policy,omitempty"`
 }
 
 // ServiceStatusResponse is the result of GET /status.
 type ServiceStatusResponse struct {
-	Status  string         `json:"status"`
-	Uptime  string         `json:"uptime,omitempty"`
-	Details map[string]any `json:"details,omitempty"`
+	Status            string            `json:"status"`
+	Uptime            string            `json:"uptime,omitempty"`
+	Details           map[string]any    `json:"details,omitempty"`
+	Checks            map[string]string `json:"checks,omitempty"`
+	CircuitBreakers   json.RawMessage   `json:"circuit_breakers,omitempty"`
+	Configuration     json.RawMessage   `json:"configuration,omitempty"`
+	Dependencies      map[string]string `json:"dependencies,omitempty"`
+	Enterprise        json.RawMessage   `json:"enterprise,omitempty"`
+	Features          json.RawMessage   `json:"features,omitempty"`
+	Metrics           json.RawMessage   `json:"metrics,omitempty"`
+	Oauth21           json.RawMessage   `json:"oauth21,omitempty"`
+	PasswordPolicy    json.RawMessage   `json:"password_policy,omitempty"`
+	Runtime           string            `json:"runtime,omitempty"`
+	Service           string            `json:"service,omitempty"`
+	Timestamp         float64           `json:"timestamp,omitempty"`
+	UptimeSec         int64             `json:"uptime_sec,omitempty"`
+	Version           string            `json:"version,omitempty"`
+	ZanzibarMigration json.RawMessage   `json:"zanzibar_migration,omitempty"`
 }
 
 // JwksHealthResponse is the result of GET /health/jwks.
 type JwksHealthResponse struct {
-	Healthy    bool   `json:"healthy"`
-	ActiveKeys int    `json:"active_keys,omitempty"`
-	Message    string `json:"message,omitempty"`
+	Healthy          bool   `json:"healthy"`
+	ActiveKeys       int    `json:"active_keys,omitempty"`
+	Message          string `json:"message,omitempty"`
+	ActiveKeyCreated string `json:"active_key_created,omitempty"`
+	ActiveKeyID      string `json:"active_key_id,omitempty"`
+	Algorithm        string `json:"algorithm,omitempty"`
+	Error            string `json:"error,omitempty"`
+	Status           string `json:"status,omitempty"`
+	TotalKeys        int64  `json:"total_keys,omitempty"`
 }
 
 // JwksRecoverResponse is the result of POST /health/jwks/recover.
 type JwksRecoverResponse struct {
-	Recovered bool   `json:"recovered,omitempty"`
-	Message   string `json:"message,omitempty"`
+	Recovered   bool   `json:"recovered,omitempty"`
+	Message     string `json:"message,omitempty"`
+	ActiveKeyID string `json:"active_key_id,omitempty"`
+	Status      string `json:"status,omitempty"`
+	TotalKeys   int64  `json:"total_keys,omitempty"`
 }
 
 // ServiceDiscoveryResponse is the result of GET / (root discovery). Nested

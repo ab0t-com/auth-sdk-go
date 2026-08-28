@@ -161,14 +161,15 @@ func TestCreateNetworkPolicyRequest_MarshalsRequiredFields(t *testing.T) {
 // F-05/F-08: /health fields the server returns must survive decode, and the
 // phantom 'components' must be gone from the type.
 func TestHealthCheckResponse_DecodesServerFields(t *testing.T) {
-	body := `{"status":"ok","version":"1","timestamp":"t","checks":{"db":"ok"},` +
+	// timestamp is a real numeric epoch — the value both backends actually send.
+	body := `{"status":"ok","version":"1","timestamp":1787879913.98,"checks":{"db":"ok"},` +
 		`"uptime_sec":12.5,"service":"auth","dependencies":{"redis":"ok"}}`
 	var hr HealthCheckResponse
 	if err := json.Unmarshal([]byte(body), &hr); err != nil {
 		t.Fatal(err)
 	}
 	if hr.Status != "ok" || hr.Service != "auth" || hr.UptimeSec != 12.5 ||
-		len(hr.Checks) == 0 || len(hr.Dependencies) == 0 {
+		hr.Timestamp == 0 || len(hr.Checks) == 0 || len(hr.Dependencies) == 0 {
 		t.Fatalf("F-05 regression: health fields lost: %+v", hr)
 	}
 }
@@ -217,5 +218,38 @@ func TestValidateAPIKey_DecodesErrorAndDelegation(t *testing.T) {
 	}
 	if v2.Reason != "revoked" {
 		t.Fatalf("F-09: APIKeyValidation.Reason not read from the \"error\" field: %q", v2.Reason)
+	}
+}
+
+// F-12 (value/type contract): the server returns `timestamp` as a NUMBER and
+// quota `usage`/`tiers` as OBJECT MAPS. Modeling these as string/array made
+// encoding/json fail the whole decode. These bodies mirror the real wire shape.
+func TestHealth_DecodesNumericTimestamp(t *testing.T) {
+	h := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok","version":"1","timestamp":1787879913.98,"dependencies":{"redis":"ok"}}`))
+	}
+	c, _ := newTestClient(t, h)
+	hc, err := c.Health(context.Background())
+	if err != nil {
+		t.Fatalf("F-12: /health failed to decode a numeric timestamp: %v", err)
+	}
+	if hc.Timestamp == 0 || hc.Status != "ok" {
+		t.Fatalf("F-12: health decoded wrong: %+v", hc)
+	}
+}
+
+func TestQuotaUsage_DecodesObjectMaps(t *testing.T) {
+	h := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"user_id":"u1","tier":"pro","usage":{"api_calls":42},"limits":{"api_calls":1000},"percentages":{"api_calls":4.2}}`))
+	}
+	c, _ := newTestClient(t, h)
+	u, err := c.MyQuotaUsage(context.Background(), "t")
+	if err != nil {
+		t.Fatalf("F-12: /quotas/my-usage failed to decode object maps: %v", err)
+	}
+	if u.Usage["api_calls"] != 42 || u.Limits["api_calls"] != 1000 || u.Tier != "pro" {
+		t.Fatalf("F-12: quota usage decoded wrong: %+v", u)
 	}
 }
