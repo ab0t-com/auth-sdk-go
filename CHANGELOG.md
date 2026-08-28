@@ -11,6 +11,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 > RELEASING.md. Verified against the live auth service on 2026-08-27.
 
 ### How to move to this version + where the contracts are written down
+- **Migration kit (run it):** `migrations/v0.9.2-to-v0.10.0/` — `migrate-check.sh` greps your repo for
+  every call site to change and prints the fix (CI-gateable); `MIGRATION.md` has the details + an
+  agent-applicable rule list.
+
 
 - **Migration:** every breaking item below has a one-line *Migration* note. Full before→after with
   internal/external classification: **`docs/CONTRACT_DRIFT_LOG.md`**.
@@ -19,8 +23,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   are in **`docs/FIELD_CONTRACT.md`**, verified against both live backends.
 - **Full investigation + evidence:** `tickets/20260827_sdk_contract_drift/`.
 - **Assurance going forward:** a field+value contract gate (`make field-drift` / `field-drift-strict`,
-  operation-based + type-aware) now guards against this drift class; it is wired into CI
-  (`.ci-pending/ci.yml`, `contract-drift` job) to run against the live auth service on every build.
+  operation-based + type-aware) now guards against this drift class. Run it before a release:
+  `make field-drift-strict`.
 
 ### ⚠️ BREAKING CHANGES — action required for some callers
 

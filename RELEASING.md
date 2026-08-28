@@ -30,6 +30,19 @@ the local state always looks correct. It is fixed by making the bump part of shi
 `TestVersionMatchesChangelog` fails if the first two disagree. `make release` refuses if any of the
 three would be left behind.
 
+## Before releasing — verify contract fidelity (manual gate)
+
+This repo has no CI running the contract gate (there is a `.ci-pending/ci.yml` GitHub Actions
+workflow that is **not installed** and does not run). The gate is an operator step: with the live
+auth service reachable, run
+
+```bash
+make field-drift-strict     # fields + values match the live auth service (exit 1 on drift)
+```
+
+before `make release`. It catches the drift class the Go tests cannot (a response type that silently
+drops or mis-types a server field).
+
 ## How to release
 
 ```bash

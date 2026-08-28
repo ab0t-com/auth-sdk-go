@@ -64,15 +64,3 @@ jobs:
             exit 1
           fi
           echo "OK: stdlib-only"
-
-  # Contract-fidelity gate (ticket 20260827_sdk_contract_drift). Catches the drift
-  # class the Go tests alone cannot: a response type that silently drops or mis-types
-  # a field the live server actually sends. `field-drift.py` is stdlib-only Python, so
-  # no setup-python action is needed (ubuntu-latest ships python3) — consistent with
-  # this workflow's no-third-party-actions rule. CI enforces against the live auth service.
-  contract-drift:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: field-drift (live public auth spec)
-        run: python3 scripts/field-drift.py --url https://auth.service.ab0t.com/openapi.json --strict

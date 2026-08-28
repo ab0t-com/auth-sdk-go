@@ -51,7 +51,3 @@ binaries, so a dependency added here becomes a dependency everywhere. The
 stdlib-only property is enforced in CI rather than left to reviewer discipline.
 
 `make check` runs the same set locally.
-
-## `contract-drift` job (added 2026-08-28)
-
-CI now includes a `contract-drift` job that runs `python3 scripts/field-drift.py --url https://auth.service.ab0t.com/openapi.json --strict` — the field+value contract gate. It needs network to reach the live auth service. It uses the runner's python3 (stdlib-only script), so it adds no third-party action.

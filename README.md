@@ -322,3 +322,9 @@ privately, never in a public issue.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Upgrading
+
+Breaking upgrades ship a migration kit under `migrations/vFROM-to-vTO/`: run its `migrate-check.sh`
+against your repo to find every call site to change, and read its `MIGRATION.md`. For v0.10.0 see
+`migrations/v0.9.2-to-v0.10.0/`.
