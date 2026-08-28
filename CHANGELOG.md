@@ -4,6 +4,100 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — contract-fidelity fixes (ticket 20260827_sdk_contract_drift)
+
+> Recommended version: **0.10.0** (contains BREAKING changes; per SemVer for a
+> 0.x line these ride a minor bump). Run `make release VERSION=0.10.0` per
+> RELEASING.md. Verified against the live Python auth service AND goauth
+> (`localhost:8028`, the incoming primary backend) on 2026-08-27.
+
+### ⚠️ BREAKING CHANGES — action required for some callers
+
+- **`Authorize()` now performs a real resource-scoped decision.** When you pass a
+  non-zero `Resource`, `Authorize` resolves the subject from the credential and then
+  asks the resource-aware permission endpoint (`POST /permissions/check`), instead of
+  relying on `validate-token` to honor the resource fields.
+  - *Why:* against a backend whose `validate-token` ignores `resource_type`/`resource_id`
+    (goauth does), the old code silently answered the broader "does this subject hold
+    the permission at all?" and could **allow an action on a resource the subject was
+    never granted** (cross-resource privilege escalation). It now fails closed.
+  - *Behavioural change:* a resource-scoped `Authorize` that previously returned `true`
+    incorrectly will now return the correct (often `false`) answer, and it makes one
+    additional round-trip (subject resolution + PDP). The optional validation cache
+    (`WithValidationCache`) absorbs the subject-resolution call.
+  - *Migration:* no code change needed. Re-check any authorization tests that asserted
+    the old (unscoped) behaviour. Resource-less `Authorize` calls are unchanged.
+
+- **`events.go` — webhook subscription types remodelled to the server contract.**
+  - `EventSubscriptionCreate`: field **`URL` → `Endpoint`** (`json:"endpoint"`), and
+    **`Name` is now required** by the server. `Active` removed from the create body.
+  - `EventSubscription` (response): `ID` → `SubscriptionID`, `URL` → `Endpoint`,
+    `Active` → `IsActive`; adds `TenantID`, `Name`, delivery/retry/batch fields.
+  - `EventSubscriptionUpdate`: `URL` → `Endpoint`, `Active` → `IsActive`, adds `Name`.
+  - `EventSubscriptionListResponse`: `Subscriptions`/`Total` → **`Items`/`Count`** (+`NextToken`).
+  - *Why:* the old `EventSubscriptionCreate` sent `url` and omitted the required
+    `name`/`endpoint`, so `CreateEventSubscription` could not succeed against the server.
+  - *Migration:* rename the fields at your call sites (`URL`→`Endpoint`, set `Name`).
+
+- **`network.go` — network-policy types remodelled to the server contract.**
+  - `CreateNetworkPolicyRequest`: **`CIDRs` → `Networks`**, **`Mode` → `Action`**
+    (values `allow`/`deny`, not `allowlist`/`blocklist`), and **`OrgID` is now required**.
+  - `NetworkPolicy` / `UpdateNetworkPolicyRequest`: same rename; `ID` → `PolicyID`;
+    adds `GeoCountries`, `GeoMode`, `RestrictedPermissions`, `RequireMFA`, `ExpiresAt`.
+  - *Why:* the old create body sent `cidrs`/`mode` and omitted required
+    `networks`/`action`/`org_id`, so `CreateNetworkPolicy` could not succeed.
+  - *Migration:* rename fields; set `OrgID` and `Action`.
+
+- **`system.go` — removed phantom fields that no backend returns.**
+  - `HealthCheckResponse.Components` **removed** (never populated by any backend).
+  - `ServiceDiscoveryResponse.Endpoints` and `.Links` **removed** (never populated).
+  - *Migration:* stop referencing these fields; the real data is in the added fields below.
+
+### Added (non-breaking)
+
+- **Delegation is now observable.** `Actor` gains `IsDelegation`, `ActingAs`,
+  `DelegationScope`, `DelegationChain` — the fields both backends return (and goauth
+  marks required) to identify a token acting on another user's behalf. `TokenUserInfo`
+  gains the embedded `Actor *TokenActorInfo` (the acting principal). Previously a
+  resource server could not tell a delegated/impersonated token from a direct one, nor
+  name the actor for its own audit log.
+- **`PermissionDecision.Scope`** — the grant-scope field goauth's check response returns.
+- **API-key validation is no longer thin (F-09).** `POST /auth/validate-api-key` returns
+  the same `TokenValidationResponse` schema as token validation on both backends, so
+  `APIKeyValidation` now surfaces `Email`, `Audience`, `ExpiresAt`, and the delegation
+  fields (`IsDelegation`, `ActingAs`, `DelegationScope`, `DelegationChain`) — a service
+  account can act on another principal's behalf. Also: `APIKeyValidation.Reason` now reads
+  from the `error` wire field the server actually sends; previously it was tagged `reason`
+  and was **always empty** (a silent bug). Field name `Reason` is unchanged (source-compatible).
+- **`User` timestamps** — `CreatedAt`, `UpdatedAt`, `LastLogin`, returned by the user read
+  endpoints (`GetUser`/`Me`/`GetMyProfile`); `created_at` is required on `UserProfile`.
+- **`TokenSet`** gains `Provider` and `Scope` — returned on `TokenResponse`
+  (`Refresh`/`Delegate`/`SwitchOrganization`).
+- **`system.go` response fidelity.** `HealthCheckResponse` and `ServiceDiscoveryResponse`
+  now model every field the backends return (nested objects as `json.RawMessage` so
+  callers can decode what they need); previously `GET /health` surfaced 2 of up to 13
+  fields and `GET /` surfaced 2 of 12.
+- **`authclienttest`** fake server now serves `/permissions/check` and
+  `/auth/check-permission`, so the exported test double exercises the new
+  resource-scoped `Authorize` path.
+
+### Known remaining gaps (tracked, not in this change)
+
+- **~100 route-matched response-field strips remain** across admin, providers, orgs, email,
+  saml, federation and passwordless (F-10). An **operation-based** audit (match by verb+path
+  → schema, not by type name) found 100 on Python and 101 on goauth; on goauth **70 are
+  name-mismatches** invisible to type-name matching because goauth's generated spec renames
+  schemas (e.g. `OrgResponse`, `PolicyCreateResponse`). Notable functional gap:
+  `UpdateOrganization` returns only `MessageResponse` but goauth returns the full org
+  (`OrgResponse`). Breaking renames left for a follow-up: `APIKey` (`Enabled`→`is_active`,
+  missing `rate_limit`). These are tracked in `tickets/20260827_sdk_contract_drift/children/`.
+- **The name-based drift checker is a lower bound (F-11).** `scripts/field-coverage.py` cannot
+  see the name-mismatch class; the operation-based `opaudit.py` (in the ticket pack) is the
+  authoritative gate and should replace it. This is why F-02 and F-09 were invisible to the
+  first sweep.
+- The 29 goauth-only operations (SCIM v2, HRIS, …), the field-drift gate upgrade (F-07),
+  and the raw-response escape hatch (F-06) remain open in the ticket pack.
+
 ## [0.9.2] — 2026-07-26
 
 ### Added — documentation and agent skills

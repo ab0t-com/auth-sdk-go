@@ -12,36 +12,56 @@ import (
 
 // ---- Models ----
 
-// NetworkPolicy is an IP/network access policy.
+// NetworkPolicy is an IP/network access policy. "networks" are CIDRs; "action"
+// is allow|deny (the server vocabulary), not the old allowlist|blocklist "mode".
 type NetworkPolicy struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Mode        string   `json:"mode,omitempty"` // allowlist | blocklist
-	CIDRs       []string `json:"cidrs,omitempty"`
-	Enabled     bool     `json:"enabled,omitempty"`
-	Priority    int      `json:"priority,omitempty"`
-	CreatedAt   string   `json:"created_at,omitempty"`
+	PolicyID              string   `json:"policy_id,omitempty"`
+	OrgID                 string   `json:"org_id,omitempty"`
+	Name                  string   `json:"name,omitempty"`
+	Description           string   `json:"description,omitempty"`
+	Priority              int      `json:"priority,omitempty"`
+	Enabled               bool     `json:"enabled,omitempty"`
+	Action                string   `json:"action,omitempty"`
+	Networks              []string `json:"networks,omitempty"`
+	GeoCountries          []string `json:"geo_countries,omitempty"`
+	GeoMode               string   `json:"geo_mode,omitempty"`
+	RestrictedPermissions []string `json:"restricted_permissions,omitempty"`
+	RequireMFA            bool     `json:"require_mfa,omitempty"`
+	CreatedBy             string   `json:"created_by,omitempty"`
+	CreatedAt             string   `json:"created_at,omitempty"`
+	UpdatedAt             string   `json:"updated_at,omitempty"`
+	ExpiresAt             string   `json:"expires_at,omitempty"`
 }
 
 // CreateNetworkPolicyRequest is the body for POST /network-policy/.
+// The server requires org_id, name, action and networks.
 type CreateNetworkPolicyRequest struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	Mode        string   `json:"mode,omitempty"`
-	CIDRs       []string `json:"cidrs"`
-	Enabled     bool     `json:"enabled,omitempty"`
-	Priority    int      `json:"priority,omitempty"`
+	OrgID                 string   `json:"org_id"`
+	Name                  string   `json:"name"`
+	Action                string   `json:"action"`
+	Networks              []string `json:"networks"`
+	Description           string   `json:"description,omitempty"`
+	Priority              int      `json:"priority,omitempty"`
+	GeoCountries          []string `json:"geo_countries,omitempty"`
+	GeoMode               string   `json:"geo_mode,omitempty"`
+	RestrictedPermissions []string `json:"restricted_permissions,omitempty"`
+	RequireMFA            bool     `json:"require_mfa,omitempty"`
+	ExpiresAt             string   `json:"expires_at,omitempty"`
 }
 
 // UpdateNetworkPolicyRequest is the body for PUT /network-policy/{policy_id}.
 type UpdateNetworkPolicyRequest struct {
-	Name        *string   `json:"name,omitempty"`
-	Description *string   `json:"description,omitempty"`
-	Mode        *string   `json:"mode,omitempty"`
-	CIDRs       *[]string `json:"cidrs,omitempty"`
-	Enabled     *bool     `json:"enabled,omitempty"`
-	Priority    *int      `json:"priority,omitempty"`
+	Name                  *string   `json:"name,omitempty"`
+	Description           *string   `json:"description,omitempty"`
+	Priority              *int      `json:"priority,omitempty"`
+	Enabled               *bool     `json:"enabled,omitempty"`
+	Action                *string   `json:"action,omitempty"`
+	Networks              *[]string `json:"networks,omitempty"`
+	GeoCountries          *[]string `json:"geo_countries,omitempty"`
+	GeoMode               *string   `json:"geo_mode,omitempty"`
+	RestrictedPermissions *[]string `json:"restricted_permissions,omitempty"`
+	RequireMFA            *bool     `json:"require_mfa,omitempty"`
+	ExpiresAt             *string   `json:"expires_at,omitempty"`
 }
 
 // NetworkPolicyCreateResponse is the result of creating a network policy.

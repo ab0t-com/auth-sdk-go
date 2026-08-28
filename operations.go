@@ -228,17 +228,43 @@ func (c *Client) ValidateTokenWith(ctx context.Context, req TokenValidationReque
 	return c.vcache.get(ctx, key, fetch)
 }
 
-// Authorize reports whether token may perform action on resource. It validates
-// the token with an inline required-permission (and optional resource) check,
-// so it needs no service privilege. This is the route-gating primitive.
+// Authorize reports whether token may perform action on resource. This is the
+// route-gating primitive.
 //
 // resource may be the zero Resource for non-resource-scoped actions.
 //
-// A credential may be a user JWT or a service/agent API key (ab0t_sk_…). API
-// keys are resolved at POST /auth/validate-api-key (the validate-token endpoint
-// does not resolve them), so Authorize routes an API-key credential there with
-// the required permission; JWTs use the inline validate-token check below.
+// A credential may be a user JWT or a service/agent API key (ab0t_sk_…).
+//
+// # Resource scoping
+//
+// When resource is NON-zero, Authorize asks a resource-scoped question and routes
+// it to the permission decision point that contractually evaluates the resource:
+// it resolves the subject from the credential, then calls CheckPermission
+// (POST /permissions/check) with the resource. This is uniform across auth
+// backends. It exists because not every backend's validate-token endpoint honors
+// the resource fields: a backend that ignores them would answer the broader
+// "does this subject hold the permission at all?" instead of "…on THIS resource?",
+// which is a silent privilege escalation across resources. Routing to the
+// resource-aware PDP removes that divergence.
+//
+// Authorize FAILS CLOSED: an invalid token, or any error resolving the subject or
+// reaching the PDP, returns false (with the error). It never falls back to an
+// unscoped allow.
+//
+// Cost: a resource-scoped Authorize performs subject-resolution and then the PDP
+// check (two round trips). The optional validation cache (WithValidationCache)
+// absorbs the subject-resolution call. A resource-less Authorize is a single
+// validate-token capability check, unchanged.
 func (c *Client) Authorize(ctx context.Context, token, action string, resource Resource) (bool, error) {
+	if resource.IsZero() {
+		return c.authorizeUnscoped(ctx, token, action)
+	}
+	return c.authorizeOnResource(ctx, token, action, resource)
+}
+
+// authorizeUnscoped is the resource-less capability check: does the credential
+// hold action? It needs no service privilege.
+func (c *Client) authorizeUnscoped(ctx context.Context, token, action string) (bool, error) {
 	if IsAPIKey(token) {
 		actor, err := c.apiKeyActor(ctx, token, []string{action})
 		if err != nil {
@@ -246,20 +272,51 @@ func (c *Client) Authorize(ctx context.Context, token, action string, resource R
 		}
 		return actor.Valid, nil
 	}
-	req := TokenValidationRequest{
+	actor, err := c.ValidateTokenWith(ctx, TokenValidationRequest{
 		Token:               token,
 		RequiredPermissions: []string{action},
 		ExpectedAudience:    c.expectedAudience,
-	}
-	if !resource.IsZero() {
-		req.ResourceType = resource.Type
-		req.ResourceID = resource.ID
-	}
-	actor, err := c.ValidateTokenWith(ctx, req)
+	})
 	if err != nil {
 		return false, err
 	}
 	return actor.Valid, nil
+}
+
+// authorizeOnResource answers the resource-scoped question by resolving the
+// subject behind the credential and asking the resource-aware PDP. It fails
+// closed on any error or invalid credential.
+func (c *Client) authorizeOnResource(ctx context.Context, token, action string, resource Resource) (bool, error) {
+	// 1. Resolve the subject (who + tenant) from the credential.
+	var actor *Actor
+	var err error
+	if IsAPIKey(token) {
+		actor, err = c.apiKeyActor(ctx, token, nil)
+	} else {
+		actor, err = c.ValidateTokenWith(ctx, TokenValidationRequest{
+			Token:            token,
+			ExpectedAudience: c.expectedAudience,
+		})
+	}
+	if err != nil {
+		return false, err
+	}
+	if actor == nil || !actor.Valid {
+		return false, nil
+	}
+	// 2. Ask the PDP the resource-scoped question. The empty caller token falls
+	// back to the configured service key. Fail closed on any error.
+	dec, err := c.CheckPermission(ctx, PermissionCheckRequest{
+		UserID:       actor.UserID,
+		OrgID:        actor.OrgID,
+		Permission:   action,
+		ResourceType: resource.Type,
+		ResourceID:   resource.ID,
+	}, "")
+	if err != nil {
+		return false, err
+	}
+	return dec.Allowed, nil
 }
 
 // ValidateAPIKey validates a service API key. POST /auth/validate-api-key.
@@ -278,8 +335,9 @@ func (c *Client) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest) 
 		return fetch(ctx)
 	}
 	// Cached as an *Actor so an API key and a JWT share one cache and one set of
-	// TTL rules. The two shapes carry the same facts, so the round trip through
-	// Actor is lossless for everything APIKeyValidation models.
+	// TTL rules. Both responses are the same schema (TokenValidationResponse), so
+	// the round trip through Actor is lossless — including the delegation fields,
+	// which an act-as service key can carry.
 	key := validationKey("validate-api-key", req.APIKey, req.ExpectedAudience,
 		req.RequiredPermissions, "", "", false)
 	actor, err := c.vcache.get(ctx, key, func(ctx context.Context) (*Actor, error) {
@@ -288,12 +346,19 @@ func (c *Client) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest) 
 			return nil, err
 		}
 		return &Actor{
-			Valid:       v.Valid,
-			UserID:      v.UserID,
-			OrgID:       v.OrgID,
-			Permissions: v.Permissions,
-			Error:       v.Reason,
-			retrievedAt: time.Now(),
+			Valid:           v.Valid,
+			UserID:          v.UserID,
+			OrgID:           v.OrgID,
+			Email:           v.Email,
+			Permissions:     v.Permissions,
+			Audience:        v.Audience,
+			ExpiresAt:       v.ExpiresAt,
+			Error:           v.Reason,
+			IsDelegation:    v.IsDelegation,
+			ActingAs:        v.ActingAs,
+			DelegationScope: v.DelegationScope,
+			DelegationChain: v.DelegationChain,
+			retrievedAt:     time.Now(),
 		}, nil
 	})
 	if err != nil {
@@ -303,11 +368,18 @@ func (c *Client) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest) 
 		return nil, nil
 	}
 	return &APIKeyValidation{
-		Valid:       actor.Valid,
-		UserID:      actor.UserID,
-		OrgID:       actor.OrgID,
-		Permissions: actor.Permissions,
-		Reason:      actor.Error,
+		Valid:           actor.Valid,
+		UserID:          actor.UserID,
+		OrgID:           actor.OrgID,
+		Email:           actor.Email,
+		Permissions:     actor.Permissions,
+		Audience:        actor.Audience,
+		ExpiresAt:       actor.ExpiresAt,
+		Reason:          actor.Error,
+		IsDelegation:    actor.IsDelegation,
+		ActingAs:        actor.ActingAs,
+		DelegationScope: actor.DelegationScope,
+		DelegationChain: actor.DelegationChain,
 	}, nil
 }
 

@@ -133,15 +133,21 @@ func TestValidateTokenAndAuthorize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != "/auth/validate-token" {
+				switch r.URL.Path {
+				case "/auth/validate-token":
+					var req TokenValidationRequest
+					_ = json.NewDecoder(r.Body).Decode(&req)
+					if req.ExpectedAudience != "game" {
+						t.Errorf("expected audience not applied: %q", req.ExpectedAudience)
+					}
+					writeJSON(w, 200, tt.resp)
+				case "/permissions/check":
+					// A resource-scoped Authorize routes here after resolving the
+					// subject. Mirror the case's expected decision.
+					writeJSON(w, 200, PermissionDecision{Allowed: tt.wantAllowed})
+				default:
 					t.Errorf("path = %s", r.URL.Path)
 				}
-				var req TokenValidationRequest
-				_ = json.NewDecoder(r.Body).Decode(&req)
-				if req.ExpectedAudience != "game" {
-					t.Errorf("expected audience not applied: %q", req.ExpectedAudience)
-				}
-				writeJSON(w, 200, tt.resp)
 			}, WithExpectedAudience("game"))
 
 			actor, err := c.ValidateToken(context.Background(), "tok")
@@ -166,21 +172,40 @@ func TestValidateTokenAndAuthorize(t *testing.T) {
 	}
 }
 
+// TestAuthorizeForwardsResourceAndPermission proves the resource-scoped contract:
+// Authorize resolves the subject, then forwards the permission AND resource to the
+// resource-aware PDP (/permissions/check), rather than relying on validate-token to
+// honor the resource (which not every backend does — see ticket 20260827).
 func TestAuthorizeForwardsResourceAndPermission(t *testing.T) {
+	var sawCheck bool
 	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		var req TokenValidationRequest
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		if len(req.RequiredPermissions) != 1 || req.RequiredPermissions[0] != "world.write" {
-			t.Errorf("required perms = %v", req.RequiredPermissions)
+		switch r.URL.Path {
+		case "/auth/validate-token":
+			writeJSON(w, 200, Actor{Valid: true, UserID: "u1", OrgID: "o1"})
+		case "/permissions/check":
+			sawCheck = true
+			var req PermissionCheckRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			if req.Permission != "world.write" {
+				t.Errorf("permission = %q", req.Permission)
+			}
+			if req.ResourceType != "world" || req.ResourceID != "w1" {
+				t.Errorf("resource = %s/%s", req.ResourceType, req.ResourceID)
+			}
+			if req.UserID != "u1" || req.OrgID != "o1" {
+				t.Errorf("subject not forwarded: %s/%s", req.UserID, req.OrgID)
+			}
+			writeJSON(w, 200, PermissionDecision{Allowed: true})
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
 		}
-		if req.ResourceType != "world" || req.ResourceID != "w1" {
-			t.Errorf("resource = %s/%s", req.ResourceType, req.ResourceID)
-		}
-		writeJSON(w, 200, Actor{Valid: true})
 	})
 	ok, err := c.Authorize(context.Background(), "tok", "world.write", Resource{Type: "world", ID: "w1"})
 	if err != nil || !ok {
 		t.Fatalf("Authorize ok=%v err=%v", ok, err)
+	}
+	if !sawCheck {
+		t.Fatalf("resource-scoped Authorize did not consult the PDP")
 	}
 }
 
@@ -212,29 +237,42 @@ func TestAPIKeyCredentialRouting(t *testing.T) {
 	const agentKey = "ab0t_sk_TEST_FAKE_agent1" // fixture, not a real credential
 
 	t.Run("Authorize routes API key to validate-api-key", func(t *testing.T) {
-		var hitPath string
+		var resolvedViaAPIKey bool
 		c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-			hitPath = r.URL.Path
-			var req ValidateAPIKeyRequest
-			_ = json.NewDecoder(r.Body).Decode(&req)
-			if req.APIKey != agentKey {
-				t.Errorf("api key = %q", req.APIKey)
+			switch r.URL.Path {
+			case "/auth/validate-api-key":
+				resolvedViaAPIKey = true
+				var req ValidateAPIKeyRequest
+				_ = json.NewDecoder(r.Body).Decode(&req)
+				if req.APIKey != agentKey {
+					t.Errorf("api key = %q", req.APIKey)
+				}
+				if req.ExpectedAudience != "living-city" {
+					t.Errorf("expected_audience = %q", req.ExpectedAudience)
+				}
+				writeJSON(w, 200, APIKeyValidation{Valid: true, UserID: "svc", OrgID: "org1"})
+			case "/permissions/check":
+				// The resource-scoped decision. The permission and resource land
+				// here, keyed to the subject the API key resolved to.
+				var req PermissionCheckRequest
+				_ = json.NewDecoder(r.Body).Decode(&req)
+				if req.Permission != "living_city.send.bot" || req.ResourceType != "bot" || req.UserID != "svc" {
+					t.Errorf("PDP req = %+v", req)
+				}
+				writeJSON(w, 200, PermissionDecision{Allowed: true})
+			case "/auth/validate-token":
+				t.Errorf("API key must NOT be sent to validate-token")
+			default:
+				t.Errorf("unexpected path %s", r.URL.Path)
 			}
-			if len(req.RequiredPermissions) != 1 || req.RequiredPermissions[0] != "living_city.send.bot" {
-				t.Errorf("required perms = %v", req.RequiredPermissions)
-			}
-			if req.ExpectedAudience != "living-city" {
-				t.Errorf("expected_audience = %q", req.ExpectedAudience)
-			}
-			writeJSON(w, 200, APIKeyValidation{Valid: true, UserID: "svc", OrgID: "org1"})
 		}, WithExpectedAudience("living-city"))
 
 		ok, err := c.Authorize(context.Background(), agentKey, "living_city.send.bot", Resource{Type: "bot", ID: "alice"})
 		if err != nil || !ok {
 			t.Fatalf("Authorize ok=%v err=%v", ok, err)
 		}
-		if hitPath != "/auth/validate-api-key" {
-			t.Fatalf("API key hit %q, want /auth/validate-api-key", hitPath)
+		if !resolvedViaAPIKey {
+			t.Fatalf("API key was not resolved at /auth/validate-api-key")
 		}
 	})
 

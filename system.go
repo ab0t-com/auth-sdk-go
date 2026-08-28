@@ -1,6 +1,9 @@
 package authclient
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // This file covers the metrics/health/discovery surface (contract section 25):
 // JWKS metrics, recent alerts, health/status probes, JWKS health + recovery,
@@ -32,11 +35,24 @@ type RecentAlertsResponse struct {
 	Alerts []AlertEntry `json:"alerts"`
 }
 
-// HealthCheckResponse is the result of GET /health.
+// HealthCheckResponse is the result of GET /health. Fields are the union across
+// auth backends; nested objects are left as raw JSON so callers can decode the
+// parts they need without this type tracking every backend's internal shape.
 type HealthCheckResponse struct {
-	Status     string            `json:"status"`
-	Version    string            `json:"version,omitempty"`
-	Components map[string]string `json:"components,omitempty"`
+	Status            string          `json:"status"`
+	Version           string          `json:"version,omitempty"`
+	Timestamp         string          `json:"timestamp,omitempty"`
+	Dependencies      json.RawMessage `json:"dependencies,omitempty"`
+	CircuitBreakers   json.RawMessage `json:"circuit_breakers,omitempty"`
+	Metrics           json.RawMessage `json:"metrics,omitempty"`
+	Enterprise        json.RawMessage `json:"enterprise,omitempty"`
+	OAuth21           json.RawMessage `json:"oauth21,omitempty"`
+	ZanzibarMigration json.RawMessage `json:"zanzibar_migration,omitempty"`
+	// goauth-only fields.
+	Checks    json.RawMessage `json:"checks,omitempty"`
+	Runtime   json.RawMessage `json:"runtime,omitempty"`
+	Service   string          `json:"service,omitempty"`
+	UptimeSec float64         `json:"uptime_sec,omitempty"`
 }
 
 // ServiceStatusResponse is the result of GET /status.
@@ -59,12 +75,21 @@ type JwksRecoverResponse struct {
 	Message   string `json:"message,omitempty"`
 }
 
-// ServiceDiscoveryResponse is the result of GET / (root discovery).
+// ServiceDiscoveryResponse is the result of GET / (root discovery). Nested
+// objects are raw JSON so callers can decode the parts they need.
 type ServiceDiscoveryResponse struct {
-	Service   string            `json:"service,omitempty"`
-	Version   string            `json:"version,omitempty"`
-	Endpoints map[string]string `json:"endpoints,omitempty"`
-	Links     map[string]string `json:"links,omitempty"`
+	Service          string          `json:"service,omitempty"`
+	Version          string          `json:"version,omitempty"`
+	Status           string          `json:"status,omitempty"`
+	Description      string          `json:"description,omitempty"`
+	DiscoveryVersion string          `json:"discovery_version,omitempty"`
+	Discovery        json.RawMessage `json:"discovery,omitempty"`
+	APIGroups        json.RawMessage `json:"api_groups,omitempty"`
+	AuthMethods      json.RawMessage `json:"auth_methods,omitempty"`
+	Capabilities     json.RawMessage `json:"capabilities,omitempty"`
+	MeshNetwork      json.RawMessage `json:"mesh_network,omitempty"`
+	Resources        json.RawMessage `json:"resources,omitempty"`
+	StartHere        json.RawMessage `json:"start_here,omitempty"`
 }
 
 // ---- Operations ----

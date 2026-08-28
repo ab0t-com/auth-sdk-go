@@ -333,11 +333,11 @@ func TestEventSubscriptions(t *testing.T) {
 		case r.URL.Path == "/events/types":
 			writeJSON(w, 200, EventTypesResponse{EventTypes: []EventTypeInfo{{Type: "user.created"}}})
 		case r.Method == "POST" && r.URL.Path == "/events/subscriptions":
-			writeJSON(w, 201, EventSubscription{ID: "sub1", URL: "https://hook"})
+			writeJSON(w, 201, EventSubscription{SubscriptionID: "sub1", Endpoint: "https://hook"})
 		case r.Method == "GET" && r.URL.Path == "/events/subscriptions":
-			writeJSON(w, 200, EventSubscriptionListResponse{Subscriptions: []EventSubscription{{ID: "sub1"}}})
+			writeJSON(w, 200, EventSubscriptionListResponse{Items: []EventSubscription{{SubscriptionID: "sub1"}}})
 		case r.Method == "PATCH" && r.URL.Path == "/events/subscriptions/sub1":
-			writeJSON(w, 200, EventSubscription{ID: "sub1", Active: false})
+			writeJSON(w, 200, EventSubscription{SubscriptionID: "sub1", IsActive: false})
 		case r.Method == "DELETE" && r.URL.Path == "/events/subscriptions/sub1":
 			w.WriteHeader(204)
 		case r.URL.Path == "/events/subscriptions/sub1/test":
@@ -349,15 +349,15 @@ func TestEventSubscriptions(t *testing.T) {
 	if _, err := c.EventTypes(context.Background()); err != nil {
 		t.Fatalf("EventTypes: %v", err)
 	}
-	sub, err := c.CreateEventSubscription(context.Background(), EventSubscriptionCreate{URL: "https://hook", EventTypes: []string{"user.created"}}, "tok")
-	if err != nil || sub.ID != "sub1" {
+	sub, err := c.CreateEventSubscription(context.Background(), EventSubscriptionCreate{Name: "hook", Endpoint: "https://hook", EventTypes: []string{"user.created"}}, "tok")
+	if err != nil || sub.SubscriptionID != "sub1" {
 		t.Fatalf("CreateEventSubscription: %v %+v", err, sub)
 	}
 	if _, err := c.ListEventSubscriptions(context.Background(), "tok"); err != nil {
 		t.Fatalf("ListEventSubscriptions: %v", err)
 	}
 	active := false
-	if _, err := c.UpdateEventSubscription(context.Background(), "sub1", EventSubscriptionUpdate{Active: &active}, "tok"); err != nil {
+	if _, err := c.UpdateEventSubscription(context.Background(), "sub1", EventSubscriptionUpdate{IsActive: &active}, "tok"); err != nil {
 		t.Fatalf("UpdateEventSubscription: %v", err)
 	}
 	if _, err := c.TestEventSubscription(context.Background(), "sub1", "tok"); err != nil {
@@ -376,9 +376,9 @@ func TestNetworkPolicy(t *testing.T) {
 		case r.Method == "POST" && r.URL.Path == "/network-policy/":
 			writeJSON(w, 201, NetworkPolicyCreateResponse{PolicyID: "np1"})
 		case r.Method == "GET" && r.URL.Path == "/network-policy/":
-			writeJSON(w, 200, NetworkPolicyListResponse{Policies: []NetworkPolicy{{ID: "np1"}}})
+			writeJSON(w, 200, NetworkPolicyListResponse{Policies: []NetworkPolicy{{PolicyID: "np1"}}})
 		case r.URL.Path == "/network-policy/np1":
-			writeJSON(w, 200, NetworkPolicy{ID: "np1", Mode: "allowlist"})
+			writeJSON(w, 200, NetworkPolicy{PolicyID: "np1", Action: "allow"})
 		case r.URL.Path == "/network-policy/evaluate":
 			if r.URL.Query().Get("ip") != "1.2.3.4" {
 				t.Errorf("evaluate ip = %q", r.URL.Query().Get("ip"))
@@ -390,7 +390,7 @@ func TestNetworkPolicy(t *testing.T) {
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 		}
 	}, WithAPIKey("ab0t_sk_admin"))
-	if _, err := c.CreateNetworkPolicy(context.Background(), CreateNetworkPolicyRequest{Name: "p", CIDRs: []string{"10.0.0.0/8"}}, ""); err != nil {
+	if _, err := c.CreateNetworkPolicy(context.Background(), CreateNetworkPolicyRequest{OrgID: "o1", Name: "p", Action: "deny", Networks: []string{"10.0.0.0/8"}}, ""); err != nil {
 		t.Fatalf("CreateNetworkPolicy: %v", err)
 	}
 	if _, err := c.ListNetworkPolicies(context.Background(), ""); err != nil {

@@ -10,7 +10,8 @@ help:
 	@echo "cover   - test with a coverage report"
 	@echo "check   - fmt-check + vet + test + stdlib-only assertion (what CI runs)"
 	@echo "spec    - fetch the live OpenAPI spec to /tmp/auth-openapi.json"
-	@echo "drift   - check this SDK against the LIVE OpenAPI spec"
+	@echo "drift   - check this SDK's PATHS against the LIVE OpenAPI spec"
+	@echo "field-drift - check this SDK's FIELDS against both backends (Python + goauth)"
 	@echo "release - VERSION=x.y.z  bump, tag and push a release (see RELEASING.md)"
 
 .PHONY: test
@@ -45,6 +46,18 @@ check:
 .PHONY: drift
 drift:
 	python3 scripts/spec-coverage.py
+
+# Path coverage says every server PATH has a method; it says nothing about whether
+# the request/response SHAPES match. field-drift checks the json tags on the SDK's
+# structs against the OpenAPI schema fields, against BOTH backends (Python + goauth).
+# Name-based, so a LOWER BOUND. See tickets/20260827_sdk_contract_drift.
+.PHONY: field-drift
+field-drift:
+	python3 scripts/field-coverage.py
+
+.PHONY: field-drift-strict
+field-drift-strict:
+	python3 scripts/field-coverage.py --strict
 
 .PHONY: drift-strict
 drift-strict:

@@ -194,6 +194,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		a := actor
 		a.Valid = valid
 		_ = json.NewEncoder(w).Encode(a)
+	case strings.HasSuffix(r.URL.Path, "/permissions/check"), strings.HasSuffix(r.URL.Path, "/auth/check-permission"):
+		// The resource-scoped PDP: a resource-scoped Authorize routes here.
+		_ = json.NewEncoder(w).Encode(map[string]any{"allowed": valid, "scope": "object"})
 	case strings.Contains(r.URL.Path, "/zanzibar/") && strings.HasSuffix(r.URL.Path, "/check"):
 		_ = json.NewEncoder(w).Encode(map[string]any{"allowed": valid})
 	default:

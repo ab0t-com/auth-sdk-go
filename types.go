@@ -22,6 +22,17 @@ type TokenUserInfo struct {
 	Name        string `json:"name,omitempty"`
 	OrgID       string `json:"org_id,omitempty"`
 	IsDelegated bool   `json:"is_delegated,omitempty"`
+	// Actor identifies the principal acting on the user's behalf when this token
+	// is delegated/impersonated. Nil for a direct (non-delegated) token.
+	Actor *TokenActorInfo `json:"actor,omitempty"`
+}
+
+// TokenActorInfo identifies the principal acting on another user's behalf on a
+// delegated token (the "actor" object the auth service embeds).
+type TokenActorInfo struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Name  string `json:"name,omitempty"`
 }
 
 // TokenSet is the result of Login / Refresh / SwitchOrganization
@@ -33,6 +44,11 @@ type TokenSet struct {
 	ExpiresIn    int           `json:"expires_in,omitempty"` // seconds
 	User         TokenUserInfo `json:"user"`
 	Audience     []string      `json:"audience,omitempty"`
+	// Provider is the auth provider that issued the token (e.g. "internal",
+	// "google"); Scope is the granted scope. Both are returned on TokenResponse
+	// (Refresh / Delegate / SwitchOrganization).
+	Provider string `json:"provider,omitempty"`
+	Scope    string `json:"scope,omitempty"`
 }
 
 // RegisterRequest is the body for POST /auth/register.
@@ -143,15 +159,23 @@ type TokenValidationRequest struct {
 // Actor is the resolved identity behind a token (TokenValidationResponse).
 // It is the canonical "who + tenant + capabilities" the server authorizes on.
 type Actor struct {
-	Valid       bool      `json:"valid"`
-	UserID      string    `json:"user_id,omitempty"`
-	OrgID       string    `json:"org_id,omitempty"`
-	Email       string    `json:"email,omitempty"`
-	Permissions []string  `json:"permissions,omitempty"`
-	Audience    []string  `json:"audience,omitempty"`
-	ExpiresAt   string    `json:"expires_at,omitempty"`
-	Error       string    `json:"error,omitempty"`
-	retrievedAt time.Time `json:"-"`
+	Valid       bool     `json:"valid"`
+	UserID      string   `json:"user_id,omitempty"`
+	OrgID       string   `json:"org_id,omitempty"`
+	Email       string   `json:"email,omitempty"`
+	Permissions []string `json:"permissions,omitempty"`
+	Audience    []string `json:"audience,omitempty"`
+	ExpiresAt   string   `json:"expires_at,omitempty"`
+	Error       string   `json:"error,omitempty"`
+	// IsDelegation reports whether this token is acting on another user's behalf.
+	IsDelegation bool `json:"is_delegation,omitempty"`
+	// ActingAs is the user_id the delegated token is acting on behalf of.
+	ActingAs string `json:"acting_as,omitempty"`
+	// DelegationScope is the permission set the delegation is limited to.
+	DelegationScope []string `json:"delegation_scope,omitempty"`
+	// DelegationChain records the principals in a chained delegation, in order.
+	DelegationChain []string  `json:"delegation_chain,omitempty"`
+	retrievedAt     time.Time `json:"-"`
 }
 
 // HasPermission reports whether the actor's resolved permission list contains p.
@@ -175,12 +199,33 @@ type ValidateAPIKeyRequest struct {
 }
 
 // APIKeyValidation is the result of validating a service API key.
+//
+// POST /auth/validate-api-key returns the SAME schema as /auth/validate-token
+// (TokenValidationResponse on both backends), so this type mirrors Actor: it
+// carries email/audience/expiry and the delegation fields, because a service
+// account CAN act on another principal's behalf (an on-behalf-of / act-as key).
+// An earlier revision modeled only valid/user_id/org_id/permissions and read the
+// failure reason from a "reason" field the server does not send (it sends
+// "error"), so Reason was always empty; both are fixed here.
 type APIKeyValidation struct {
 	Valid       bool     `json:"valid"`
 	UserID      string   `json:"user_id,omitempty"`
 	OrgID       string   `json:"org_id,omitempty"`
+	Email       string   `json:"email,omitempty"`
 	Permissions []string `json:"permissions,omitempty"`
-	Reason      string   `json:"reason,omitempty"`
+	Audience    []string `json:"audience,omitempty"`
+	ExpiresAt   string   `json:"expires_at,omitempty"`
+	// Reason is the failure reason for an invalid key. The wire field is "error"
+	// (shared with token validation); the Go field keeps the name Reason for
+	// source compatibility.
+	Reason string `json:"error,omitempty"`
+	// IsDelegation/ActingAs/DelegationScope/DelegationChain describe an act-as key
+	// (a service account acting on another principal's behalf). Zero for a direct
+	// service key. See Actor for the JWT-side twin.
+	IsDelegation    bool     `json:"is_delegation,omitempty"`
+	ActingAs        string   `json:"acting_as,omitempty"`
+	DelegationScope []string `json:"delegation_scope,omitempty"`
+	DelegationChain []string `json:"delegation_chain,omitempty"`
 }
 
 // Introspection is the RFC 7662 response from POST /token/introspect.
@@ -217,6 +262,9 @@ type PermissionDecision struct {
 	Reason               string   `json:"reason,omitempty"`
 	Source               string   `json:"source,omitempty"`
 	EffectivePermissions []string `json:"effective_permissions,omitempty"`
+	// Scope reports how broadly the grant matched (e.g. object-scoped vs
+	// wider); returned by the goauth check response.
+	Scope string `json:"scope,omitempty"`
 }
 
 // UserPermissions is the result of GET /permissions/user/{user_id}.
@@ -258,6 +306,11 @@ type User struct {
 	ActiveOrgID   string                 `json:"active_org_id,omitempty"` // UserProfile
 	Organizations []UserOrganizationInfo `json:"organizations,omitempty"` // UserProfile
 	Metadata      map[string]any         `json:"metadata,omitempty"`
+	// CreatedAt/UpdatedAt/LastLogin are returned by the user read endpoints
+	// (UserProfile / UserResponse). created_at is required on UserProfile.
+	CreatedAt string `json:"created_at,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+	LastLogin string `json:"last_login,omitempty"`
 }
 
 // UserOrganizationInfo is one membership entry (GET /users/me/organizations).

@@ -24,42 +24,87 @@ type EventTypesResponse struct {
 	EventTypes []EventTypeInfo `json:"event_types"`
 }
 
+// EventFilter narrows which events a subscription receives.
+type EventFilter struct {
+	Field    string `json:"field"`
+	Operator string `json:"operator"`
+	Value    any    `json:"value"`
+}
+
+// RetryPolicy configures webhook delivery retries.
+type RetryPolicy struct {
+	MaxAttempts         int     `json:"max_attempts,omitempty"`
+	InitialDelaySeconds int     `json:"initial_delay_seconds,omitempty"`
+	MaxDelaySeconds     int     `json:"max_delay_seconds,omitempty"`
+	BackoffMultiplier   float64 `json:"backoff_multiplier,omitempty"`
+	Jitter              bool    `json:"jitter,omitempty"`
+}
+
 // EventSubscriptionCreate is the body for POST /events/subscriptions.
+// The server requires name, event_types and endpoint.
 type EventSubscriptionCreate struct {
-	URL         string            `json:"url"`
-	EventTypes  []string          `json:"event_types"`
-	Secret      string            `json:"secret,omitempty"`
-	Active      bool              `json:"active,omitempty"`
-	Headers     map[string]string `json:"headers,omitempty"`
-	Description string            `json:"description,omitempty"`
+	Name               string            `json:"name"`
+	EventTypes         []string          `json:"event_types"`
+	Endpoint           string            `json:"endpoint"`
+	Description        string            `json:"description,omitempty"`
+	Filters            []EventFilter     `json:"filters,omitempty"`
+	DeliveryMethod     string            `json:"delivery_method,omitempty"`
+	Secret             string            `json:"secret,omitempty"`
+	Headers            map[string]string `json:"headers,omitempty"`
+	RetryPolicy        *RetryPolicy      `json:"retry_policy,omitempty"`
+	BatchSize          int               `json:"batch_size,omitempty"`
+	BatchTimeoutMs     int               `json:"batch_timeout_ms,omitempty"`
+	MaxEventsPerMinute int               `json:"max_events_per_minute,omitempty"`
 }
 
 // EventSubscriptionUpdate is the body for PATCH /events/subscriptions/{id}.
 type EventSubscriptionUpdate struct {
-	URL         *string            `json:"url,omitempty"`
-	EventTypes  *[]string          `json:"event_types,omitempty"`
-	Secret      *string            `json:"secret,omitempty"`
-	Active      *bool              `json:"active,omitempty"`
-	Headers     *map[string]string `json:"headers,omitempty"`
-	Description *string            `json:"description,omitempty"`
+	Name               *string            `json:"name,omitempty"`
+	EventTypes         *[]string          `json:"event_types,omitempty"`
+	Endpoint           *string            `json:"endpoint,omitempty"`
+	Description        *string            `json:"description,omitempty"`
+	Filters            *[]EventFilter     `json:"filters,omitempty"`
+	DeliveryMethod     *string            `json:"delivery_method,omitempty"`
+	Secret             *string            `json:"secret,omitempty"`
+	Headers            *map[string]string `json:"headers,omitempty"`
+	RetryPolicy        *RetryPolicy       `json:"retry_policy,omitempty"`
+	BatchSize          *int               `json:"batch_size,omitempty"`
+	BatchTimeoutMs     *int               `json:"batch_timeout_ms,omitempty"`
+	MaxEventsPerMinute *int               `json:"max_events_per_minute,omitempty"`
+	IsActive           *bool              `json:"is_active,omitempty"`
 }
 
-// EventSubscription is a webhook subscription.
+// EventSubscription is a webhook subscription (EventSubscription in the API).
 type EventSubscription struct {
-	ID          string            `json:"id"`
-	URL         string            `json:"url,omitempty"`
-	EventTypes  []string          `json:"event_types,omitempty"`
-	Active      bool              `json:"active,omitempty"`
-	Headers     map[string]string `json:"headers,omitempty"`
-	Description string            `json:"description,omitempty"`
-	CreatedAt   string            `json:"created_at,omitempty"`
-	UpdatedAt   string            `json:"updated_at,omitempty"`
+	SubscriptionID     string            `json:"subscription_id,omitempty"`
+	TenantID           string            `json:"tenant_id,omitempty"`
+	Name               string            `json:"name,omitempty"`
+	Description        string            `json:"description,omitempty"`
+	EventTypes         []string          `json:"event_types,omitempty"`
+	Filters            []EventFilter     `json:"filters,omitempty"`
+	DeliveryMethod     string            `json:"delivery_method,omitempty"`
+	Endpoint           string            `json:"endpoint,omitempty"`
+	Secret             string            `json:"secret,omitempty"`
+	Headers            map[string]string `json:"headers,omitempty"`
+	IsActive           bool              `json:"is_active,omitempty"`
+	RetryPolicy        *RetryPolicy      `json:"retry_policy,omitempty"`
+	BatchSize          int               `json:"batch_size,omitempty"`
+	BatchTimeoutMs     int               `json:"batch_timeout_ms,omitempty"`
+	MaxEventsPerMinute int               `json:"max_events_per_minute,omitempty"`
+	CreatedAt          string            `json:"created_at,omitempty"`
+	UpdatedAt          string            `json:"updated_at,omitempty"`
+	CreatedBy          string            `json:"created_by,omitempty"`
+	LastDeliveryAt     string            `json:"last_delivery_at,omitempty"`
+	LastDeliveryStatus string            `json:"last_delivery_status,omitempty"`
+	TotalDeliveries    int               `json:"total_deliveries,omitempty"`
+	FailedDeliveries   int               `json:"failed_deliveries,omitempty"`
 }
 
 // EventSubscriptionListResponse lists webhook subscriptions.
 type EventSubscriptionListResponse struct {
-	Subscriptions []EventSubscription `json:"subscriptions"`
-	Total         int                 `json:"total,omitempty"`
+	Items     []EventSubscription `json:"items"`
+	Count     int                 `json:"count,omitempty"`
+	NextToken string              `json:"next_token,omitempty"`
 }
 
 // EventSubscriptionTestResponse is the result of a test delivery.
