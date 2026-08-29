@@ -68,12 +68,18 @@ type APIKeyWithToken struct {
 // ===================== Models: delegation =====================
 
 // DelegationGrant is the body for POST /delegation/grant.
+// DelegationGrant is the body for POST /delegation/grant. The target is the
+// AUTHENTICATED caller (you grant an actor the right to act as YOU), so it is not
+// in the body. (G-04) An earlier revision sent `permissions`/`target_user_id`/
+// `expires_at`/`reason` — none of which the server's request schema has; the
+// server requires `scope` (the permission set) and, on goauth, `expires_in_hours`.
+// So GrantDelegation could not succeed as-shipped (422). Fixed here.
 type DelegationGrant struct {
-	ActorID      string   `json:"actor_id"`       // who may act
-	TargetUserID string   `json:"target_user_id"` // on whose behalf
-	Permissions  []string `json:"permissions,omitempty"`
-	ExpiresAt    string   `json:"expires_at,omitempty"`
-	Reason       string   `json:"reason,omitempty"`
+	ActorID string   `json:"actor_id"` // who may act (on the caller's behalf)
+	Scope   []string `json:"scope"`    // the permission set the actor may use — REQUIRED
+	// ExpiresInHours bounds the grant. REQUIRED by goauth; optional on Python.
+	// Set it, or the goauth backend rejects the grant (422).
+	ExpiresInHours *int `json:"expires_in_hours,omitempty"`
 }
 
 // DelegationResponse is the result of POST /delegation/grant.

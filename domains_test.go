@@ -814,7 +814,7 @@ func TestDelegationDomain(t *testing.T) {
 		}
 	})
 	ctx := context.Background()
-	if d, err := c.GrantDelegation(ctx, DelegationGrant{ActorID: "svc", TargetUserID: "u2"}, "tok"); err != nil || d.ID != "d1" {
+	if d, err := c.GrantDelegation(ctx, DelegationGrant{ActorID: "svc", Scope: []string{"world.read"}}, "tok"); err != nil || d.ID != "d1" {
 		t.Fatalf("GrantDelegation: %v", err)
 	}
 	if _, err := c.RevokeDelegation(ctx, "svc", "tok"); err != nil {

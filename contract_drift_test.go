@@ -276,3 +276,22 @@ func TestAPIKeyUpdate_MarshalsIsActiveNotEnabled(t *testing.T) {
 		t.Fatalf("E: APIKeyUpdate must NOT send the ignored `enabled` field; got %s", s)
 	}
 }
+
+// G-04: DelegationGrant must send `scope` (server-required), never `permissions`,
+// and must not send the phantom target_user_id/expires_at (the target is the caller).
+func TestDelegationGrant_MarshalsScope(t *testing.T) {
+	hrs := 24
+	b, _ := json.Marshal(DelegationGrant{ActorID: "svc", Scope: []string{"world.read"}, ExpiresInHours: &hrs})
+	s := string(b)
+	if !strings.Contains(s, `"scope":["world.read"]`) {
+		t.Fatalf("G-04: must marshal scope; got %s", s)
+	}
+	for _, bad := range []string{`"permissions"`, `"target_user_id"`, `"expires_at"`} {
+		if strings.Contains(s, bad) {
+			t.Fatalf("G-04: must NOT send %s; got %s", bad, s)
+		}
+	}
+	if !strings.Contains(s, `"expires_in_hours":24`) {
+		t.Fatalf("G-04: expires_in_hours (goauth-required) missing; got %s", s)
+	}
+}
