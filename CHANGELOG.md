@@ -4,9 +4,9 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.10.1] — 2026-08-29 — delegation-grant fix (G-04)
 
-### ⚠️ BREAKING (bugfix) — delegation grant (G-04)
+### Fixed — `DelegationGrant` (G-04)
 
 - **`DelegationGrant` remodelled to the server's request contract.** It now sends `Scope []string`
   (`json:"scope"`, server-**required**) and `ExpiresInHours *int` (required by the goauth backend),
@@ -16,7 +16,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - *Why:* the old body omitted the required `scope`, so `Client.GrantDelegation` failed with 422 and
     could not succeed as shipped. Same class as F-04/F-05.
   - *Migration:* replace `Permissions` with `Scope`; set `ExpiresInHours`; drop `TargetUserID`/
-    `ExpiresAt`/`Reason`. See `migrations/` for the next kit.
+    `ExpiresAt`/`Reason`. See `migrations/v0.10.0-to-0.10.1/`.
 
 ## [0.10.0] — 2026-08-28 — contract-fidelity + provisioning
 
