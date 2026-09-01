@@ -4,6 +4,21 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] — 2026-08-31 — ship the migrationbot agent (packaging fix)
+
+### Fixed — migration kit driver did not ship
+
+- **The migrationbot agent now ships, from a tracked public folder.** `migrations/README.md` told
+  consumers to run `@agent-migrationbot` from `.claude/agents/migrationbot.md`, but `.gitignore`
+  excludes all of `.claude/` (it can hold local settings/secrets), so that file was in no tag and
+  reached no consumer — a documented driver that did not exist. Fixed by shipping the agent from a
+  plain tracked folder, [`migrations/agent/`](migrations/agent/), instead of un-ignoring anything in
+  `.claude/` (which stays fully ignored). Clients copy `migrations/agent/migrationbot.md` into
+  wherever their setup keeps agents (`<repo>/.claude/agents/` or `~/.claude/agents/`).
+- **`migrations/README.md` clarified.** It now leads with the always-shipping, tooling-free path
+  (`MIGRATION.md` + `migrate-check.sh`, plus `agent-cycle-prompt.md` where present); the agent is an
+  optional convenience with copy-in instructions in `migrations/agent/README.md`. No API change.
+
 ## [0.10.1] — 2026-08-29 — delegation-grant fix (G-04)
 
 ### Fixed — `DelegationGrant` (G-04)

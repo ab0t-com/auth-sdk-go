@@ -10,8 +10,14 @@ One directory per breaking upgrade, named `vFROM-to-vTO/`, each containing:
 
 Upgrading across several versions? Run each version's checker in order.
 
-## Automating with the migrationbot agent
+## Automating the migration (optional)
 
-This repo ships a Claude Code agent at `.claude/agents/migrationbot.md`. In a client repo that has
-this SDK checked out, run `@agent-migrationbot` (or "migrate my service to auth-sdk-go vX") — it loads
-the right kit's `MIGRATION.SOP.md`, runs the check→fix→recheck→build loop, and writes a worklog.
+The migration is fully self-serve from the files above — no special tooling required. Hand
+`MIGRATION.md` + `migrate-check.sh` to any coding agent, or follow them yourself. Where a kit also
+includes `agent-cycle-prompt.md`, paste that into any coding agent as a ready-made driver.
+
+For Claude Code users, this repo also ships an optional packaged agent at
+[`agent/migrationbot.md`](agent/migrationbot.md) that runs the whole check→fix→recheck→build loop and
+writes a worklog. Copy it into wherever your setup keeps agents (`<your-service>/.claude/agents/` or
+`~/.claude/agents/`), then run `@agent-migrationbot`. See [`agent/README.md`](agent/README.md) for
+details — it lives in a plain tracked folder (not `.claude/`) so you place it where you want.

@@ -99,6 +99,8 @@ venv/
 *.tfstate.backup
 
 # ── local tooling / agent scratch ────────────────────────────────────────────
+# Fully ignored — may hold local settings/secrets. Client-facing tooling we SHIP
+# lives in a tracked public folder instead (migrations/agent/), never here.
 .claude/
 .aider*
 .direnv/
