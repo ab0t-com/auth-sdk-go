@@ -2,6 +2,7 @@ package authclient
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"testing"
@@ -144,7 +145,17 @@ func TestLoginConfig(t *testing.T) {
 		}
 		switch r.URL.Path {
 		case "/organizations/o1/login-config":
-			writeJSON(w, 200, LoginConfigResponse{Config: LoginConfig{OrgID: "o1", AllowSignup: true}})
+			if r.Method == "PUT" {
+				// Assert the PUT body is section-nested (the API 400s flat keys).
+				var body map[string]json.RawMessage
+				readBody(t, r, &body)
+				if _, ok := body["auth_methods"]; !ok {
+					t.Errorf("PUT body not section-nested: %v", body)
+				}
+			}
+			// API returns merged sections at the TOP LEVEL (no {config} wrapper).
+			sig := true
+			writeJSON(w, 200, LoginConfig{AuthMethods: &LoginConfigAuthMethods{SignupEnabled: &sig}})
 		case "/organizations/acme/login-config/public":
 			writeJSON(w, 200, PublicLoginConfig{OrgSlug: "acme", AllowPassword: true})
 		default:
@@ -155,7 +166,7 @@ func TestLoginConfig(t *testing.T) {
 		t.Fatalf("GetLoginConfig: %v", err)
 	}
 	allow := true
-	if _, err := c.UpdateLoginConfig(context.Background(), "o1", LoginConfigUpdate{AllowSignup: &allow}, ""); err != nil {
+	if _, err := c.UpdateLoginConfig(context.Background(), "o1", LoginConfigUpdate{AuthMethods: &LoginConfigAuthMethods{SignupEnabled: &allow}}, ""); err != nil {
 		t.Fatalf("UpdateLoginConfig: %v", err)
 	}
 	if _, err := c.GetPublicLoginConfig(context.Background(), "acme"); err != nil {

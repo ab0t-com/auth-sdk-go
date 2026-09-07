@@ -695,13 +695,18 @@ func cmdOrgTree(ctx context.Context, e *env, _ any, args []string) error {
 	return e.out.emit(res, func() {
 		// Render the TREE, indented. Companies of companies are the point of this
 		// verb; a flat summary would hide the thing it exists to show.
-		res.WalkOrgTree(func(n *auth.OrgHierarchyResponse, depth int) {
-			if n.Organization == nil {
+		res.WalkOrgTree(func(org *auth.OrgInfo, depth int) {
+			if org == nil {
 				return
 			}
-			e.out.printf("%s%s  %s  (teams %d, users %d)\n",
-				strings.Repeat("  ", depth), n.Organization.Slug, n.Organization.ID,
-				n.TeamCount, n.UserCount)
+			// Counts are a root-only field on the wire (children are flattened orgs).
+			if depth == 0 {
+				e.out.printf("%s%s  %s  (teams %d, users %d)\n",
+					strings.Repeat("  ", depth), org.Slug, org.ID,
+					res.TeamCount, res.UserCount)
+				return
+			}
+			e.out.printf("%s%s  %s\n", strings.Repeat("  ", depth), org.Slug, org.ID)
 		})
 	})
 }

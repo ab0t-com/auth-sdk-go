@@ -88,7 +88,7 @@ func TestUserAdminLifecycle(t *testing.T) {
 		t.Fatalf("VerifyUserEmail: %v", err)
 	}
 	nm := "X"
-	if _, err := c.UpdateUser(context.Background(), "u9", UserUpdate{Name: &nm}, ""); err != nil {
+	if _, err := c.UpdateUser(context.Background(), "u9", AdminUserUpdate{UserUpdate: UserUpdate{Name: &nm}}, ""); err != nil {
 		t.Fatalf("UpdateUser: %v", err)
 	}
 }
@@ -133,11 +133,13 @@ func TestOrganizationLifecycle(t *testing.T) {
 			// The real contract: {organization, teams, children, counts}. The
 			// old test asserted a shape the service never returns, so it passed
 			// while the SDK could only ever have decoded zeros.
+			// Root nests under "organization"; each child is FLATTENED (org
+			// fields inline) plus its own "children" — the real wire shape.
 			writeJSON(w, 200, OrgHierarchyResponse{
 				Organization: &OrgInfo{ID: "org1", Slug: "acme"},
 				TeamCount:    1, UserCount: 2,
-				Children: []OrgHierarchyResponse{{
-					Organization: &OrgInfo{ID: "org2", Slug: "acme-eu", ParentID: "org1"},
+				Children: []OrgHierarchyChild{{
+					OrgInfo: OrgInfo{ID: "org2", Slug: "acme-eu", ParentID: "org1"},
 				}},
 			})
 		default:
@@ -162,15 +164,15 @@ func TestOrganizationLifecycle(t *testing.T) {
 	if h.TeamCount != 1 || h.UserCount != 2 {
 		t.Errorf("counts not decoded: teams=%d users=%d", h.TeamCount, h.UserCount)
 	}
-	// Companies of companies: the child must decode, and carry its parent link.
-	if len(h.Children) != 1 || h.Children[0].Organization.ParentID != "org1" {
+	// Companies of companies: the child must decode (flattened), with its parent link.
+	if len(h.Children) != 1 || h.Children[0].ParentID != "org1" || h.Children[0].Slug != "acme-eu" {
 		t.Fatalf("sub-organization not decoded: %+v", h.Children)
 	}
 	// WalkOrgTree must visit root and children, in order, with depth.
 	var seen []string
 	var depths []int
-	h.WalkOrgTree(func(n *OrgHierarchyResponse, d int) {
-		seen = append(seen, n.Organization.ID)
+	h.WalkOrgTree(func(org *OrgInfo, d int) {
+		seen = append(seen, org.ID)
 		depths = append(depths, d)
 	})
 	if len(seen) != 2 || seen[0] != "org1" || seen[1] != "org2" {
@@ -185,7 +187,8 @@ func TestOrgMembershipAndInvites(t *testing.T) {
 	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/organizations/org1/users":
-			writeJSON(w, 200, OrgUserResponse{Users: []OrgMember{{UserID: "u1", Role: "member"}}, Total: 1})
+			// API returns a BARE array of member objects (not an envelope).
+			writeJSON(w, 200, []OrgMember{{UserID: "u1", Role: "member", OrgPermissions: []string{"users.read"}}})
 		case "/organizations/org1/users/u1":
 			if r.Method == "PUT" {
 				var req OrgRoleUpdate
@@ -198,25 +201,26 @@ func TestOrgMembershipAndInvites(t *testing.T) {
 				writeJSON(w, 200, MessageResponse{Message: "removed"})
 			}
 		case "/organizations/org1/invite":
-			writeJSON(w, 200, MessageResponse{Message: "invited"})
+			// New-invitee shape carries the invitation_code the invitee redeems.
+			writeJSON(w, 200, InviteResult{Message: "invited", InvitationID: "inv1", InvitationCode: "code_abc", ExpiresAt: "2026-02-01T00:00:00Z"})
 		case "/organizations/org1/invitations":
 			writeJSON(w, 200, []InvitationListItem{{ID: "i1", Email: "x@y.com"}})
 		case "/organizations/org1/invitations/i1":
 			writeJSON(w, 200, MessageResponse{Message: "cancelled"})
 		case "/organizations/org1/sessions":
 			if r.Method == "GET" {
-				writeJSON(w, 200, OrgSessionsResponse{Sessions: []OrgSession{{ID: "s1"}}})
+				writeJSON(w, 200, OrgSessionsResponse{OrganizationID: "org1", TotalSessions: 1, Sessions: []OrgSession{{SessionID: "s1", UserID: "u1"}}})
 			} else {
 				writeJSON(w, 200, MessageResponse{Message: "revoked"})
 			}
 		case "/organizations/org1/users/u1/sessions":
-			writeJSON(w, 200, SessionRevokeResponse{RevokedCount: 2})
+			writeJSON(w, 200, SessionRevokeResponse{SessionsRevoked: 2})
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
 	})
 	ctx := context.Background()
-	if u, err := c.ListOrgUsers(ctx, "org1", "tok"); err != nil || u.Total != 1 {
+	if u, err := c.ListOrgUsers(ctx, "org1", "tok"); err != nil || len(u) != 1 || u[0].UserID != "u1" || len(u[0].OrgPermissions) != 1 {
 		t.Fatalf("ListOrgUsers: %v %+v", err, u)
 	}
 	if r, err := c.UpdateOrgUserRole(ctx, "org1", "u1", OrgRoleUpdate{Role: "admin"}, "tok"); err != nil || r.Role != "admin" {
@@ -225,8 +229,8 @@ func TestOrgMembershipAndInvites(t *testing.T) {
 	if _, err := c.RemoveOrgUser(ctx, "org1", "u1", "tok"); err != nil {
 		t.Fatalf("RemoveOrgUser: %v", err)
 	}
-	if _, err := c.InviteToOrganization(ctx, "org1", OrganizationInvite{Email: "x@y.com"}, "tok"); err != nil {
-		t.Fatalf("InviteToOrganization: %v", err)
+	if inv, err := c.InviteToOrganization(ctx, "org1", OrganizationInvite{Email: "x@y.com", Role: "member", TeamID: "t1", Permissions: []string{"users.read"}}, "tok"); err != nil || inv.InvitationCode != "code_abc" {
+		t.Fatalf("InviteToOrganization: %v %+v", err, inv)
 	}
 	if inv, err := c.ListInvitations(ctx, "org1", "tok"); err != nil || len(inv) != 1 {
 		t.Fatalf("ListInvitations: %v %+v", err, inv)
@@ -234,13 +238,14 @@ func TestOrgMembershipAndInvites(t *testing.T) {
 	if _, err := c.RevokeInvitation(ctx, "org1", "i1", "tok"); err != nil {
 		t.Fatalf("RevokeInvitation: %v", err)
 	}
-	if s, err := c.ListOrgSessions(ctx, "org1", "tok"); err != nil || len(s.Sessions) != 1 {
+	if s, err := c.ListOrgSessions(ctx, "org1", "tok"); err != nil || len(s.Sessions) != 1 ||
+		s.TotalSessions != 1 || s.Sessions[0].SessionID != "s1" {
 		t.Fatalf("ListOrgSessions: %v %+v", err, s)
 	}
 	if _, err := c.RevokeOrgSessions(ctx, "org1", "tok"); err != nil {
 		t.Fatalf("RevokeOrgSessions: %v", err)
 	}
-	if r, err := c.RevokeUserSessions(ctx, "org1", "u1", "tok"); err != nil || r.RevokedCount != 2 {
+	if r, err := c.RevokeUserSessions(ctx, "org1", "u1", "tok"); err != nil || r.SessionsRevoked != 2 {
 		t.Fatalf("RevokeUserSessions: %v %+v", err, r)
 	}
 }
@@ -588,7 +593,13 @@ func TestProvidersDomain(t *testing.T) {
 		switch r.URL.Path {
 		case "/providers/":
 			if r.Method == "POST" {
-				writeJSON(w, 200, Provider{ID: "p1", Type: "oidc"})
+				// Assert the create body uses provider_type (not type).
+				var body map[string]json.RawMessage
+				readBody(t, r, &body)
+				if _, ok := body["provider_type"]; !ok {
+					t.Errorf("CreateProvider body missing provider_type: %v", body)
+				}
+				writeJSON(w, 200, Provider{ID: "p1", ProviderType: "oidc", IsActive: true})
 			} else {
 				writeJSON(w, 200, []Provider{{ID: "p1"}})
 			}
@@ -608,7 +619,7 @@ func TestProvidersDomain(t *testing.T) {
 		}
 	}, WithAPIKey("ab0t_sk_admin"))
 	ctx := context.Background()
-	if p, err := c.CreateProvider(ctx, ProviderConfigCreate{Name: "g", Type: "oidc"}, ""); err != nil || p.ID != "p1" {
+	if p, err := c.CreateProvider(ctx, ProviderConfigCreate{Name: "g", ProviderType: "oidc"}, ""); err != nil || p.ID != "p1" {
 		t.Fatalf("CreateProvider: %v", err)
 	}
 	if ps, err := c.ListProviders(ctx, ""); err != nil || len(ps) != 1 {
@@ -618,7 +629,7 @@ func TestProvidersDomain(t *testing.T) {
 		t.Fatalf("GetProvider: %v", err)
 	}
 	en := false
-	if _, err := c.UpdateProvider(ctx, "p1", ProviderConfigUpdate{Enabled: &en}, ""); err != nil {
+	if _, err := c.UpdateProvider(ctx, "p1", ProviderConfigUpdate{IsActive: &en}, ""); err != nil {
 		t.Fatalf("UpdateProvider: %v", err)
 	}
 	if _, err := c.DeleteProvider(ctx, "p1", ""); err != nil {

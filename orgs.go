@@ -13,28 +13,46 @@ import (
 
 // ===================== Models: organisations =====================
 
-// OrganizationCreate is the body for POST /organizations/.
+// OrganizationCreate is the body for POST /organizations/. Fields mirror the goauth
+// createOrgRequest handler struct (orgs/create.go:19-32), adding the org-profile
+// fields (logo_url, website, industry, size). NOTE: billing_type is NOT settable on
+// this endpoint — the handler forces the PREPAID default (create.go:43-46), so the
+// pre-v0.11.0 BillingType field was silently ignored and has been removed. See the
+// FEATURE QUESTION in the work_log about where caller-set billing_type should live.
 type OrganizationCreate struct {
 	Name            string         `json:"name"`
 	Slug            string         `json:"slug,omitempty"`
 	Domain          string         `json:"domain,omitempty"`
 	ParentID        string         `json:"parent_id,omitempty"`
-	BillingType     string         `json:"billing_type,omitempty"`
 	ServiceAudience string         `json:"service_audience,omitempty"`
+	LogoURL         string         `json:"logo_url,omitempty"`
+	Website         string         `json:"website,omitempty"`
+	Industry        string         `json:"industry,omitempty"`
+	Size            string         `json:"size,omitempty"`
 	Timezone        string         `json:"timezone,omitempty"`
 	Settings        map[string]any `json:"settings,omitempty"`
 	Metadata        map[string]any `json:"metadata,omitempty"`
 }
 
-// OrganizationUpdate is the body for PUT /organizations/{org_id}.
+// OrganizationUpdate is the body for PUT /organizations/{org_id}. Fields mirror the
+// goauth updateOrgRequest handler struct (orgs/detail.go:35-48): the SDK can now
+// rename the slug and re-parent (parent_id), and set the profile fields. NOTE:
+//   - billing_type is NOT accepted here — the handler 400-REJECTS the whole request
+//     if it is present (detail.go:70-73), so BillingType was removed (a stray value
+//     would otherwise fail an unrelated update). FEATURE QUESTION filed in work_log.
+//   - status is NOT in the update schema (silently ignored), so Status was removed.
 type OrganizationUpdate struct {
-	Name        *string         `json:"name,omitempty"`
-	Domain      *string         `json:"domain,omitempty"`
-	BillingType *string         `json:"billing_type,omitempty"`
-	Status      *string         `json:"status,omitempty"`
-	Timezone    *string         `json:"timezone,omitempty"`
-	Settings    *map[string]any `json:"settings,omitempty"`
-	Metadata    *map[string]any `json:"metadata,omitempty"`
+	Name     *string         `json:"name,omitempty"`
+	Slug     *string         `json:"slug,omitempty"`
+	Domain   *string         `json:"domain,omitempty"`
+	ParentID *string         `json:"parent_id,omitempty"`
+	LogoURL  *string         `json:"logo_url,omitempty"`
+	Website  *string         `json:"website,omitempty"`
+	Industry *string         `json:"industry,omitempty"`
+	Size     *string         `json:"size,omitempty"`
+	Timezone *string         `json:"timezone,omitempty"`
+	Settings *map[string]any `json:"settings,omitempty"`
+	Metadata *map[string]any `json:"metadata,omitempty"`
 }
 
 // OrgHierarchyNode is a node in an organization tree.
@@ -84,11 +102,23 @@ type OrgInfo struct {
 // Children are the SUB-ORGANIZATIONS: this is how companies-of-companies are
 // represented on the wire.
 type OrgHierarchyResponse struct {
-	Organization *OrgInfo               `json:"organization"`
-	Teams        []HierarchyTeam        `json:"teams,omitempty"`
-	Children     []OrgHierarchyResponse `json:"children,omitempty"`
-	UserCount    int                    `json:"user_count,omitempty"`
-	TeamCount    int                    `json:"team_count,omitempty"`
+	Organization *OrgInfo            `json:"organization"`
+	Teams        []HierarchyTeam     `json:"teams,omitempty"`
+	Children     []OrgHierarchyChild `json:"children,omitempty"`
+	UserCount    int                 `json:"user_count,omitempty"`
+	TeamCount    int                 `json:"team_count,omitempty"`
+}
+
+// OrgHierarchyChild is one sub-organization node in a hierarchy response. IMPORTANT:
+// unlike the ROOT (which nests the org under an "organization" key alongside teams
+// and counts), a child carries the org's fields INLINE (flattened) plus its own
+// recursive `children`. Modelling children as OrgHierarchyResponse (the pre-v0.11.0
+// bug) dropped every child's org fields, since they were looked for under a
+// non-existent "organization" sub-key. Mirrors goauth childOrgOut
+// (orgs/hierarchy.go:24-27: embedded orgResponse + children).
+type OrgHierarchyChild struct {
+	OrgInfo
+	Children []OrgHierarchyChild `json:"children,omitempty"`
 }
 
 // HierarchyTeam is one team inside an organization in a hierarchy response.
@@ -106,40 +136,55 @@ type HierarchyUser struct {
 }
 
 // WalkOrgTree visits every organization in the hierarchy depth-first, including
-// the root, calling fn with the node and its depth.
+// the root (depth 0), calling fn with that node's OrgInfo and its depth.
 //
 // Provided because "how many companies are under this one" and "flatten the tree
 // for an audit" are the two things every caller does with this response, and both
-// are recursive — which is exactly the code people get subtly wrong.
-func (r *OrgHierarchyResponse) WalkOrgTree(fn func(node *OrgHierarchyResponse, depth int)) {
-	var walk func(*OrgHierarchyResponse, int)
-	walk = func(n *OrgHierarchyResponse, d int) {
-		if n == nil {
-			return
-		}
-		fn(n, d)
-		for i := range n.Children {
-			walk(&n.Children[i], d+1)
+// are recursive — which is exactly the code people get subtly wrong. The callback
+// receives *OrgInfo (uniform across root and children) — the root's Organization
+// and each child's inline org — since the root and child wire shapes differ.
+func (r *OrgHierarchyResponse) WalkOrgTree(fn func(org *OrgInfo, depth int)) {
+	if r == nil {
+		return
+	}
+	fn(r.Organization, 0)
+	var walk func(kids []OrgHierarchyChild, depth int)
+	walk = func(kids []OrgHierarchyChild, depth int) {
+		for i := range kids {
+			fn(&kids[i].OrgInfo, depth)
+			walk(kids[i].Children, depth+1)
 		}
 	}
-	walk(r, 0)
+	walk(r.Children, 1)
 }
 
-// OrgMember is one organization membership entry.
+// OrgMember is one organization membership entry as returned by
+// GET /organizations/{org_id}/users. The endpoint returns a BARE JSON array of
+// these objects (not an envelope), so ListOrgUsers decodes into []OrgMember.
+// Fields mirror the goauth orgUserResponse handler struct
+// (goauth/internal/httpapi/orgs/members.go). Note the member-scoped grants are
+// carried on org_permissions (NOT permissions).
 type OrgMember struct {
-	UserID      string   `json:"user_id"`
-	Email       string   `json:"email,omitempty"`
-	Name        string   `json:"name,omitempty"`
-	Role        string   `json:"role,omitempty"`
-	Status      string   `json:"status,omitempty"`
-	Permissions []string `json:"permissions,omitempty"`
-	JoinedAt    string   `json:"joined_at,omitempty"`
-}
-
-// OrgUserResponse is the result of GET /organizations/{org_id}/users.
-type OrgUserResponse struct {
-	Users []OrgMember `json:"users"`
-	Total int         `json:"total,omitempty"`
+	ID             string         `json:"id,omitempty"`
+	UserID         string         `json:"user_id"`
+	Email          string         `json:"email,omitempty"`
+	Name           string         `json:"name,omitempty"`
+	ProviderType   string         `json:"provider_type,omitempty"`
+	Role           string         `json:"role,omitempty"`
+	Status         string         `json:"status,omitempty"`
+	EmailVerified  bool           `json:"email_verified,omitempty"`
+	Phone          string         `json:"phone,omitempty"`
+	AvatarURL      string         `json:"avatar_url,omitempty"`
+	Timezone       string         `json:"timezone,omitempty"`
+	Language       string         `json:"language,omitempty"`
+	LastLogin      string         `json:"last_login,omitempty"`
+	CreatedAt      string         `json:"created_at,omitempty"`
+	UpdatedAt      string         `json:"updated_at,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
+	OrgID          string         `json:"org_id,omitempty"`
+	TeamID         string         `json:"team_id,omitempty"`
+	JoinedAt       string         `json:"joined_at,omitempty"`
+	OrgPermissions []string       `json:"org_permissions,omitempty"`
 }
 
 // RoleUpdateResponse is the result of changing a member's role.
@@ -149,19 +194,39 @@ type RoleUpdateResponse struct {
 	Role    string `json:"role,omitempty"`
 }
 
-// OrgRoleUpdate is the body for PUT /organizations/{org_id}/users/{user_id}.
+// OrgRoleUpdate is the body for PUT /organizations/{org_id}/users/{user_id}. The
+// handler reads ONLY role (goauth updateRoleRequest, orgs/members.go:133-135), so
+// the pre-v0.11.0 Permissions field was silently ignored (a member's permissions
+// are set via the invite or team, not this role update) and has been removed.
 type OrgRoleUpdate struct {
-	Role        string   `json:"role,omitempty"`
-	Permissions []string `json:"permissions,omitempty"`
+	Role string `json:"role,omitempty"`
 }
 
-// OrganizationInvite is the body for POST /organizations/{org_id}/invite.
+// OrganizationInvite is the body for POST /organizations/{org_id}/invite. Fields
+// mirror the goauth inviteRequest handler struct (orgs/invitations.go:25-31): a
+// SINGLE team_id (not team_ids), plus per-invite permissions. The API accepts no
+// `resend` flag (re-sends are deduped server-side), so it was removed.
 type OrganizationInvite struct {
-	Email   string   `json:"email"`
-	Role    string   `json:"role,omitempty"`
-	TeamIDs []string `json:"team_ids,omitempty"`
-	Message string   `json:"message,omitempty"`
-	Resend  bool     `json:"resend,omitempty"`
+	Email string `json:"email"`
+	Role  string `json:"role,omitempty"`
+	// TeamID assigns the invitee to a team on join (the API applies exactly one).
+	TeamID string `json:"team_id,omitempty"`
+	// Permissions grants member-scoped permissions on join.
+	Permissions []string `json:"permissions,omitempty"`
+	Message     string   `json:"message,omitempty"`
+}
+
+// InviteResult is the result of POST /organizations/{org_id}/invite. The endpoint
+// returns one of two shapes: for a NEW invitee, {message, invitation_id,
+// invitation_code, expires_at} — InvitationCode is what the invitee redeems via
+// RegisterRequest.InvitationCode; for an EXISTING user (added directly), {message,
+// user_id}. Both are folded here (unset fields stay empty).
+type InviteResult struct {
+	Message        string `json:"message,omitempty"`
+	InvitationID   string `json:"invitation_id,omitempty"`
+	InvitationCode string `json:"invitation_code,omitempty"`
+	ExpiresAt      string `json:"expires_at,omitempty"`
+	UserID         string `json:"user_id,omitempty"`
 }
 
 // InvitationListItem is one entry from GET /organizations/{org_id}/invitations.
@@ -179,27 +244,34 @@ type InvitationListItem struct {
 	CancelledAt string   `json:"cancelled_at,omitempty"`
 }
 
-// OrgSession is one active session row.
+// OrgSession is one active session row. Field names mirror the goauth orgSession
+// handler struct (orgs/sessions.go:31-41): the id is on session_id (NOT id), the
+// last-activity time is last_accessed (NOT last_seen_at), and the API does NOT
+// return an expiry on this listing. It also carries the user's email/name.
 type OrgSession struct {
-	ID         string `json:"id"`
-	UserID     string `json:"user_id"`
-	IPAddress  string `json:"ip_address,omitempty"`
-	UserAgent  string `json:"user_agent,omitempty"`
-	CreatedAt  string `json:"created_at,omitempty"`
-	LastSeenAt string `json:"last_seen_at,omitempty"`
-	ExpiresAt  string `json:"expires_at,omitempty"`
+	SessionID    string `json:"session_id"`
+	UserID       string `json:"user_id"`
+	UserEmail    string `json:"user_email,omitempty"`
+	UserName     string `json:"user_name,omitempty"`
+	IPAddress    string `json:"ip_address,omitempty"`
+	UserAgent    string `json:"user_agent,omitempty"`
+	CreatedAt    string `json:"created_at,omitempty"`
+	LastAccessed string `json:"last_accessed,omitempty"`
 }
 
 // OrgSessionsResponse is the result of GET /organizations/{org_id}/sessions.
+// The count is on total_sessions (NOT total), and the org id is echoed.
 type OrgSessionsResponse struct {
-	Sessions []OrgSession `json:"sessions"`
-	Total    int          `json:"total,omitempty"`
+	OrganizationID string       `json:"organization_id,omitempty"`
+	Sessions       []OrgSession `json:"sessions"`
+	TotalSessions  int          `json:"total_sessions,omitempty"`
 }
 
-// SessionRevokeResponse is the result of revoking a user's sessions.
+// SessionRevokeResponse is the result of revoking a user's org sessions. The count
+// is on sessions_revoked (goauth sessionRevokeResponse, orgs/sessions.go:121-124).
 type SessionRevokeResponse struct {
-	Message      string `json:"message,omitempty"`
-	RevokedCount int    `json:"revoked_count,omitempty"`
+	Message         string `json:"message,omitempty"`
+	SessionsRevoked int    `json:"sessions_revoked,omitempty"`
 }
 
 // ===================== Models: teams =====================
@@ -228,6 +300,11 @@ type TeamCreate struct {
 	Description string         `json:"description,omitempty"`
 	ParentID    string         `json:"parent_id,omitempty"`
 	Metadata    map[string]any `json:"metadata,omitempty"`
+	// Permissions sets the team's computed permissions AT CREATE — the API accepts
+	// them on POST (teamCreateRequest.Permissions), so a caller need not do a
+	// create-then-grant loop (impractical under the grant rate limit for large sets).
+	// Read them back via GetTeamPermissions / Team.Permissions.
+	Permissions []string `json:"permissions,omitempty"`
 }
 
 // TeamUpdate is the body for PUT /teams/{team_id}.
@@ -235,15 +312,22 @@ type TeamUpdate struct {
 	Name        *string         `json:"name,omitempty"`
 	Description *string         `json:"description,omitempty"`
 	Metadata    *map[string]any `json:"metadata,omitempty"`
+	// Permissions replaces the team's computed permissions (pointer: nil = leave as-is,
+	// non-nil = set to exactly this set). Matches teamUpdateRequest.Permissions server-side.
+	Permissions *[]string `json:"permissions,omitempty"`
 }
 
-// TeamMember is one team member entry.
+// TeamMember is one team member entry from GET /teams/{team_id}/members. Fields
+// mirror the goauth teamMemberResponse handler struct (teams/teams.go:272-278):
+// {user_id, team_id, role, permissions, joined_at}. The endpoint does NOT return
+// email/name (those phantom fields were dropped), the join time is joined_at (not
+// added_at), and per-member permissions/team_id are now exposed.
 type TeamMember struct {
-	UserID  string `json:"user_id"`
-	Email   string `json:"email,omitempty"`
-	Name    string `json:"name,omitempty"`
-	Role    string `json:"role,omitempty"`
-	AddedAt string `json:"added_at,omitempty"`
+	UserID      string   `json:"user_id"`
+	TeamID      string   `json:"team_id,omitempty"`
+	Role        string   `json:"role,omitempty"`
+	Permissions []string `json:"permissions,omitempty"`
+	JoinedAt    string   `json:"joined_at,omitempty"`
 }
 
 // TeamMemberAdd is the body for POST /teams/{team_id}/members.
@@ -258,9 +342,14 @@ type TeamMemberRoleUpdate struct {
 }
 
 // TeamPermissionsResponse is the result of GET /teams/{team_id}/permissions.
+// InheritedPermissions is the union of ancestor teams' permissions (walked up the
+// parent_team_id chain server-side); enterprise callers must union it with
+// Permissions to compute a member's effective grants. Mirrors goauth
+// teamPermissionsResponse (teams/teams.go:281-285).
 type TeamPermissionsResponse struct {
-	TeamID      string   `json:"team_id,omitempty"`
-	Permissions []string `json:"permissions"`
+	TeamID               string   `json:"team_id,omitempty"`
+	Permissions          []string `json:"permissions"`
+	InheritedPermissions []string `json:"inherited_permissions,omitempty"`
 }
 
 // ===================== Organisations =====================
@@ -305,12 +394,18 @@ func (c *Client) GetOrgHierarchy(ctx context.Context, orgID, callerToken string)
 
 // ListOrgUsers lists members of an organization (requires users.read).
 // GET /organizations/{org_id}/users.
-func (c *Client) ListOrgUsers(ctx context.Context, orgID, callerToken string) (*OrgUserResponse, error) {
-	var out OrgUserResponse
+//
+// The endpoint returns a BARE JSON array of member objects, so this returns a
+// []OrgMember (BREAKING vs the pre-v0.11.0 *OrgUserResponse envelope, which
+// hard-errored decoding the array into a struct). Supports server-side ?role=
+// and ?limit= filters via optional query args on the caller's own path today;
+// this convenience method fetches the full list.
+func (c *Client) ListOrgUsers(ctx context.Context, orgID, callerToken string) ([]OrgMember, error) {
+	var out []OrgMember
 	if err := c.doGet(ctx, "/organizations/"+url.PathEscape(orgID)+"/users", &out, callerToken); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return out, nil
 }
 
 // UpdateOrgUserRole changes a member's role/permissions (requires users.write).
@@ -336,9 +431,11 @@ func (c *Client) RemoveOrgUser(ctx context.Context, orgID, userID, callerToken s
 }
 
 // InviteToOrganization invites a user by email (requires users.invite).
-// POST /organizations/{org_id}/invite.
-func (c *Client) InviteToOrganization(ctx context.Context, orgID string, req OrganizationInvite, callerToken string) (*MessageResponse, error) {
-	var out MessageResponse
+// POST /organizations/{org_id}/invite. Returns an InviteResult carrying the
+// invitation_code for a new invitee (BREAKING vs the pre-v0.11.0 *MessageResponse,
+// which dropped the code the invitee needs to register).
+func (c *Client) InviteToOrganization(ctx context.Context, orgID string, req OrganizationInvite, callerToken string) (*InviteResult, error) {
+	var out InviteResult
 	if err := c.doJSON(ctx, "POST", "/organizations/"+url.PathEscape(orgID)+"/invite", req, &out, callerToken); err != nil {
 		return nil, err
 	}

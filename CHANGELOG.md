@@ -4,6 +4,58 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] — 2026-09-07 — CLASS-34 contract-fidelity (BREAKING)
+
+> Prepared by ticket `20260907_class_sdk_api_struct_parity`. This is a
+> **BREAKING** minor bump (SemVer 0.x): several return types, struct fields, and one endpoint path
+> changed so the client faithfully matches the auth service wire contract. Consumers migrate with
+> `migrations/v0.10.2-to-v0.11.0/` (`migrate-check.sh` + `MIGRATION.md`; migrationbot can drive it). **No server change is
+> required.** Migrate with `migrations/v0.10.2-to-v0.11.0/` (run `migrate-check.sh` against your repo,
+> or drive `agent-cycle-prompt.md` with a coding agent).
+
+### Fixed — the client now matches the wire contract (CLASS-34 "silent unknown-field drop")
+
+Across ~25 endpoints the SDK request/response structs under-exposed, renamed, or mis-shaped fields the
+server actually accepts/returns — so calls hard-errored, silently validated the wrong thing, or dropped
+data. Full before→after per change: `migrations/v0.10.2-to-v0.11.0/MIGRATION.md`. Highlights:
+
+- **Bare-array / envelope decode fixes (were hard-erroring or empty):** `ListOrgUsers` → `[]OrgMember`;
+  `ListOrgClients` → `[]OrgClientSafe`; `GetLoginConfig`/`UpdateLoginConfig` → `*LoginConfig` with five
+  nested sections (branding/content/auth_methods/registration/security); authz-model write now sends a
+  flat `{schema_version,type_definitions}` body and list/get decode the `authorization_models` /
+  `authorization_model` envelopes; hierarchy children are `[]OrgHierarchyChild` (flattened) and
+  `WalkOrgTree` passes `*OrgInfo`; session id/count keys (`session_id`/`last_accessed`/`total_sessions`/
+  `sessions_revoked`).
+- **Missing / renamed accepted fields:** `RegisterRequest.InvitationCode` (invite-join was unreachable);
+  `APIKeyCreate.RateLimit`; providers `provider_type`/`is_active` (+`is_default`/`description`/`metadata`,
+  settings move into `Config`); invite `TeamID`+`Permissions` and `InviteToOrganization` → `*InviteResult`
+  (exposes the `invitation_code`); DCR `client_uri`/`tos_uri`/`software_*`; `TeamMember`
+  `team_id`/`permissions`/`joined_at`; `TeamPermissionsResponse.InheritedPermissions`; org
+  profile+`slug`+`parent_id` and `Organization.AudienceStatus`; read `expires_at` +
+  `ReadRelationshipsForSubject`; new `AdminUserUpdate.Status`.
+- **Over-exposure / footguns removed:** `TokenValidationRequest.ResourceType`/`.ResourceID` (SECURITY —
+  silently unscoped; use `Authorize(…, Resource{…})`); `OrganizationCreate/Update.BillingType` (billing-
+  owned by design — see below) and `OrganizationUpdate.Status`; `RegisterRequest.ProviderType`;
+  `OrgRegisterRequest.FirstName`/`.LastName`; `APIKeyCreate.OrgID`/`.Audience`; `APIKeyUpdate.Metadata`;
+  `OrgRoleUpdate.Permissions`.
+- **Whole-endpoint gaps:** `WriteAndDeleteRelationships` now targets the real `POST …/write`
+  (returns `*TransactResponse`); the zanzibar model-assertions surface added
+  (`PutModelAssertions`/`GetModelAssertions`/`RunModelAssertions`).
+
+### Added — regression prevention
+
+- **Bidirectional contract gate** (`contract_gate_test.go` + pinned `scripts/api_contract.json`,
+  `make contract-gate`): reflects the paired SDK structs against the pinned API contract and fails the
+  build on any missing-request / missing-response / over-exposure / envelope-mismatch drift, with a
+  reasoned allow-list — so CLASS-34 cannot silently recur. Plus 18 real-body `TestWireShape_*` tests.
+
+### Note — `billing_type` is billing-owned (by design, not a gap)
+
+`OrganizationCreate/Update` no longer carry `billing_type`: goauth's org endpoints deliberately do not
+accept it (create forces PREPAID; update 400-rejects it) because a caller-set value would be self-serve
+tier escalation (ticket `20260720_billing_type_self_serve_tier_escalation`). Set org tier via the
+billing service; put other custom org attributes in the `Metadata` map.
+
 ## [0.10.2] — 2026-08-31 — ship the migrationbot agent (packaging fix)
 
 ### Fixed — migration kit driver did not ship

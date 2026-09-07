@@ -51,7 +51,10 @@ type OAuthProviderAuthorizeResponse struct {
 	State            string `json:"state,omitempty"`
 }
 
-// ClientRegistration is the body for RFC 7591 dynamic client registration.
+// ClientRegistration is the body for RFC 7591 dynamic client registration. The
+// server reads all of these (goauth internal/oauth/dcr.go:104-115), including the
+// client_uri/tos_uri/software_id/software_version metadata that the RESPONSE
+// already surfaced — previously readable but un-settable (read-write asymmetry).
 type ClientRegistration struct {
 	RedirectURIs            []string `json:"redirect_uris,omitempty"`
 	ClientName              string   `json:"client_name,omitempty"`
@@ -62,6 +65,10 @@ type ClientRegistration struct {
 	Contacts                []string `json:"contacts,omitempty"`
 	LogoURI                 string   `json:"logo_uri,omitempty"`
 	PolicyURI               string   `json:"policy_uri,omitempty"`
+	ClientURI               string   `json:"client_uri,omitempty"`
+	TOSURI                  string   `json:"tos_uri,omitempty"`
+	SoftwareID              string   `json:"software_id,omitempty"`
+	SoftwareVersion         string   `json:"software_version,omitempty"`
 }
 
 // ClientRegistrationResponse is the RFC 7591 registration result.

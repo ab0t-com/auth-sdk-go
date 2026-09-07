@@ -1,0 +1,178 @@
+{
+  "_README": [
+    "PINNED API CONTRACT SNAPSHOT — the source of truth for the CLASS-34 bidirectional contract gate.",
+    "Each entry is ONE auth-service endpoint. It records the TOP-LEVEL json field names the goauth",
+    "handler MEANINGFULLY decodes (request_accepts — fields it actually consumes, NOT merely-ignored",
+    "ones) and encodes (response_returns), plus the response envelope (object|array).",
+    "",
+    "The gate (contract_gate_test.go) reflects the paired SDK request/response Go structs and fails",
+    "the build (it runs under `go test`) on ANY of the four CLASS-34 categories:",
+    "  1 MISSING-ON-REQUEST  — API accepts a field the SDK request struct omits.",
+    "  2 MISSING-ON-RESPONSE — API returns a field the SDK response struct omits.",
+    "  3 OVER-EXPOSURE       — SDK sends/reads a field not in the API set (footgun) unless allow-listed.",
+    "  4 ENVELOPE-MISMATCH   — array-vs-object / wrapper-vs-flat: the SDK binding kind must match.",
+    "",
+    "allow_request_extra / allow_response_extra: intentional deviations, each with a WRITTEN REASON.",
+    "request_custom_marshal:true — the SDK request type has a custom MarshalJSON (reflection can't",
+    "see the wire); the request check is delegated to its dedicated wire-shape test (named in note).",
+    "",
+    "REGENERATION: this is hand-derived from the cited goauth handler structs (file:line in each",
+    "note). When the server legitimately changes a shape, update the affected entry from the handler",
+    "and adjust the SDK struct + its wire-shape test in the same change. HOUSE STANDARD: the same",
+    "gate harness should be adopted by the other Go SDKs (ab0t-quota-go, hooks-go, skills-go)."
+  ],
+
+  "GET /organizations/{org_id}/users": {
+    "note": "goauth orgs/members.go:14-36,127 (bare []orgUserResponse)",
+    "response_envelope": "array",
+    "response_returns": ["id","user_id","email","name","provider_type","role","status","email_verified","phone","avatar_url","timezone","language","last_login","created_at","updated_at","metadata","org_id","team_id","joined_at","org_permissions"]
+  },
+
+  "GET /organizations/{org_id}/login-config": {
+    "note": "goauth orgs/loginconfig.go:163-214,279-290 (sections at top level)",
+    "response_envelope": "object",
+    "response_returns": ["branding","content","auth_methods","registration","security"]
+  },
+  "PUT /organizations/{org_id}/login-config": {
+    "note": "goauth orgs/loginconfig.go:216-221,295-407 (partial deep-merge; unknown top-level key -> 400)",
+    "request_accepts": ["branding","content","auth_methods","registration","security"],
+    "response_envelope": "object",
+    "response_returns": ["branding","content","auth_methods","registration","security"]
+  },
+
+  "POST /zanzibar/stores/{store_id}/authorization-models": {
+    "note": "goauth zanzibarhttp/authmodels.go:142-149,362-398; request has custom MarshalJSON, see TestWireShape_WriteAuthorizationModel_FlatBody",
+    "request_custom_marshal": true,
+    "response_envelope": "object",
+    "response_returns": ["authorization_model_id"],
+    "allow_response_extra": {"message": "some deployments echo a message; harmless, ticket P0-3"}
+  },
+  "GET /zanzibar/stores/{store_id}/authorization-models": {
+    "note": "goauth zanzibarhttp/authmodels.go:170-172,400-416 (key authorization_models)",
+    "response_envelope": "object",
+    "response_returns": ["authorization_models"]
+  },
+
+  "GET /organizations/{org_id}/hierarchy": {
+    "note": "goauth orgs/hierarchy.go:16-22,35-67",
+    "response_envelope": "object",
+    "response_returns": ["organization","teams","children","user_count","team_count"]
+  },
+
+  "GET /organizations/{org_id}/sessions": {
+    "note": "goauth orgs/sessions.go:43-47,52-72",
+    "response_envelope": "object",
+    "response_returns": ["organization_id","total_sessions","sessions"]
+  },
+  "DELETE /organizations/{org_id}/users/{user_id}/sessions": {
+    "note": "goauth orgs/sessions.go:121-124,134-159",
+    "response_envelope": "object",
+    "response_returns": ["message","sessions_revoked"]
+  },
+
+  "POST /auth/register": {
+    "note": "goauth authextra/register.go:36-42",
+    "request_accepts": ["email","password","name","org_id","invitation_code"]
+  },
+  "POST /organizations/{slug}/auth/register": {
+    "note": "goauth orgauth/login.go:37-43",
+    "request_accepts": ["email","password","name","client_id","invitation_code"]
+  },
+
+  "POST /api-keys/": {
+    "note": "goauth apikeyshttp/apikeyshttp.go:94-99",
+    "request_accepts": ["name","permissions","rate_limit","expires_at"]
+  },
+  "PUT /api-keys/{key_id}": {
+    "note": "goauth apikeyshttp/apikeyshttp.go:400-405",
+    "request_accepts": ["name","permissions","rate_limit","is_active"],
+    "allow_request_extra": {"expires_at": "server ignores it; retained w/ disclosed godoc (P1-b/P3-d)"}
+  },
+
+  "POST /providers/": {
+    "note": "goauth providerswire/handlers.go:125-134 (org_id accepted but ignored -> excluded)",
+    "request_accepts": ["provider_type","name","description","config","is_default","priority","metadata"]
+  },
+  "PUT /providers/{provider_id}": {
+    "note": "goauth providerswire/handlers.go:139-147",
+    "request_accepts": ["name","description","config","is_active","is_default","priority","metadata"]
+  },
+
+  "POST /organizations/{org_id}/invite": {
+    "note": "goauth orgs/invitations.go:25-31 (request) + 40-50,107-110 (union response)",
+    "request_accepts": ["email","role","team_id","permissions","message"],
+    "response_envelope": "object",
+    "response_returns": ["message","invitation_id","invitation_code","expires_at","user_id"]
+  },
+
+  "POST /auth/oauth/register": {
+    "note": "goauth internal/oauth/dcr.go:104-115 (RFC-7591 DCR body)",
+    "request_accepts": ["redirect_uris","client_name","grant_types","response_types","scope","token_endpoint_auth_method","contacts","logo_uri","policy_uri","client_uri","tos_uri","software_id","software_version"]
+  },
+
+  "GET /teams/{team_id}/members": {
+    "note": "goauth teams/teams.go:272-278",
+    "response_envelope": "array",
+    "response_returns": ["user_id","team_id","role","permissions","joined_at"]
+  },
+  "GET /teams/{team_id}/permissions": {
+    "note": "goauth teams/teams.go:281-285",
+    "response_envelope": "object",
+    "response_returns": ["team_id","permissions","inherited_permissions"]
+  },
+
+  "POST /organizations/": {
+    "note": "goauth orgs/create.go:19-32 (billing_type NOT accepted; forced PREPAID)",
+    "request_accepts": ["name","slug","domain","parent_id","service_audience","logo_url","website","industry","size","timezone","settings","metadata"]
+  },
+  "PUT /organizations/{org_id}": {
+    "note": "goauth orgs/detail.go:35-48 (billing_type present in struct but 400-rejected; status NOT in schema)",
+    "request_accepts": ["name","slug","domain","parent_id","logo_url","website","industry","size","timezone","settings","metadata"]
+  },
+  "GET /organizations/{org_id}": {
+    "note": "goauth orgs/orgs.go:439-469 (orgResponse)",
+    "response_envelope": "object",
+    "response_returns": ["id","name","slug","domain","parent_id","service_audience","audience_status","billing_type","status","logo_url","website","industry","size","timezone","created_at","updated_at","settings","metadata"]
+  },
+
+  "POST /auth/validate-token": {
+    "note": "goauth internal/models/auth.go:56-62 (NO resource scoping)",
+    "request_accepts": ["token","required_permissions","expected_audience","include_permissions"]
+  },
+
+  "PUT /organizations/{org_id}/users/{user_id}": {
+    "note": "goauth orgs/members.go:133-135 (reads only role)",
+    "request_accepts": ["role"]
+  },
+
+  "GET /organizations/{org_id}/clients": {
+    "note": "goauth orgs/clients.go:20-32,70 (bare array)",
+    "response_envelope": "array",
+    "response_returns": ["client_id","client_name","client_type","client_uri","logo_uri","redirect_uris","response_types","grant_types","scope","status","created_at","org_id"]
+  },
+
+  "POST /zanzibar/stores/{store_id}/write": {
+    "note": "goauth zanzibarhttp/transact.go:27-43; request has custom MarshalJSON, see TestWireShape_TransactWriteBody",
+    "request_custom_marshal": true,
+    "response_envelope": "object",
+    "response_returns": ["success","message","written","deleted","consistency_token"]
+  },
+
+  "GET /zanzibar/stores/{store_id}/assertions/{model_id}": {
+    "note": "goauth zanzibarhttp/assertions.go:54-56",
+    "response_envelope": "object",
+    "response_returns": ["authorization_model_id","assertions"]
+  },
+  "POST /zanzibar/stores/{store_id}/assertions/{model_id}/run": {
+    "note": "goauth zanzibarhttp/assertions.go:67-70",
+    "response_envelope": "object",
+    "response_returns": ["authorization_model_id","passed","results"]
+  },
+  "PUT /zanzibar/stores/{store_id}/assertions/{model_id}": {
+    "note": "goauth zanzibarhttp/assertions.go:50-51 + 203-234",
+    "request_accepts": ["assertions"],
+    "response_envelope": "object",
+    "response_returns": ["message"],
+    "allow_response_extra": {"success": "shared generic MessageResponse envelope carries an optional success flag"}
+  }
+}

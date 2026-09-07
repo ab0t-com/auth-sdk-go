@@ -260,7 +260,7 @@ func credentialFingerprint(cred string) string {
 // Required permissions are NOT sorted. Sorting would raise the hit rate by
 // merging orderings, but it would also be this SDK asserting that the service
 // treats the list as an unordered set. It is not this SDK's fact to assert.
-func validationKey(kind, cred, audience string, perms []string, resourceType, resourceID string, includePerms bool) string {
+func validationKey(kind, cred, audience string, perms []string, includePerms bool) string {
 	var b strings.Builder
 	writeField := func(s string) {
 		b.WriteString(strconv.Itoa(len(s)))
@@ -274,8 +274,6 @@ func validationKey(kind, cred, audience string, perms []string, resourceType, re
 	for _, p := range perms {
 		writeField(p)
 	}
-	writeField(resourceType)
-	writeField(resourceID)
 	writeField(strconv.FormatBool(includePerms))
 	sum := sha256.Sum256([]byte(b.String()))
 	return credentialFingerprint(cred) + hex.EncodeToString(sum[:])

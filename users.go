@@ -107,9 +107,22 @@ func (c *Client) ChangeMyPassword(ctx context.Context, token string, req ChangeP
 
 // ---- Admin user management (users.read / users.write) ----
 
-// UpdateUser updates a user by id (requires users.write).
-// PUT /users/{user_id}.
-func (c *Client) UpdateUser(ctx context.Context, userID string, upd UserUpdate, callerToken string) (*MessageResponse, error) {
+// AdminUserUpdate is the body for the ADMIN PUT /users/{user_id}. It is UserUpdate
+// plus Status — which the admin endpoint accepts (goauth updateUserRequest,
+// usersadmin/update.go:27-34; validated to active/inactive/suspended/pending) but
+// the self endpoint (/users/me) does not. Kept distinct from UserUpdate so a
+// self-service caller can't send a status the /users/me handler would ignore.
+type AdminUserUpdate struct {
+	UserUpdate
+	// Status sets the account state (e.g. "active", "inactive", "suspended",
+	// "pending"). Admin-only; an invalid value is rejected 422 by the server.
+	Status *string `json:"status,omitempty"`
+}
+
+// UpdateUser updates a user by id (requires users.write), including the account
+// status (suspend/reactivate). PUT /users/{user_id}. Takes AdminUserUpdate
+// (BREAKING vs the pre-v0.11.0 UserUpdate arg, which had no way to set status).
+func (c *Client) UpdateUser(ctx context.Context, userID string, upd AdminUserUpdate, callerToken string) (*MessageResponse, error) {
 	var out MessageResponse
 	if err := c.doJSON(ctx, "PUT", "/users/"+url.PathEscape(userID), upd, &out, callerToken); err != nil {
 		return nil, err

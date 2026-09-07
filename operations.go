@@ -224,7 +224,7 @@ func (c *Client) ValidateTokenWith(ctx context.Context, req TokenValidationReque
 	// Actor without permissions must not be served to a caller that asked for
 	// them.
 	key := validationKey("validate-token", req.Token, req.ExpectedAudience,
-		req.RequiredPermissions, req.ResourceType, req.ResourceID, req.IncludePermissions)
+		req.RequiredPermissions, req.IncludePermissions)
 	return c.vcache.get(ctx, key, fetch)
 }
 
@@ -341,7 +341,7 @@ func (c *Client) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest) 
 	// the round trip through Actor is lossless — including the delegation fields,
 	// which an act-as service key can carry.
 	key := validationKey("validate-api-key", req.APIKey, req.ExpectedAudience,
-		req.RequiredPermissions, "", "", false)
+		req.RequiredPermissions, false)
 	actor, err := c.vcache.get(ctx, key, func(ctx context.Context) (*Actor, error) {
 		v, err := fetch(ctx)
 		if err != nil {

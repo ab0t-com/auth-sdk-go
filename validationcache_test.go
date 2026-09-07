@@ -171,8 +171,6 @@ func TestValidationCacheKeysOnRequestShape(t *testing.T) {
 		{"different permission", TokenValidationRequest{Token: testJWT, RequiredPermissions: []string{"a"}}, TokenValidationRequest{Token: testJWT, RequiredPermissions: []string{"b"}}},
 		{"permission order", TokenValidationRequest{Token: testJWT, RequiredPermissions: []string{"a", "b"}}, TokenValidationRequest{Token: testJWT, RequiredPermissions: []string{"b", "a"}}},
 		{"no permission vs one", TokenValidationRequest{Token: testJWT}, TokenValidationRequest{Token: testJWT, RequiredPermissions: []string{"a"}}},
-		{"different resource type", TokenValidationRequest{Token: testJWT, ResourceType: "x"}, TokenValidationRequest{Token: testJWT, ResourceType: "y"}},
-		{"different resource id", TokenValidationRequest{Token: testJWT, ResourceType: "x", ResourceID: "1"}, TokenValidationRequest{Token: testJWT, ResourceType: "x", ResourceID: "2"}},
 		{"include permissions flag", TokenValidationRequest{Token: testJWT}, TokenValidationRequest{Token: testJWT, IncludePermissions: true}},
 		// The concatenation hazard: {"a","bc"} and {"ab","c"} join to the same
 		// bytes without length prefixes. A collision here applies one request's
@@ -469,7 +467,7 @@ func TestInvalidateValidationDropsEveryShapeForOneCredential(t *testing.T) {
 	shapes := []TokenValidationRequest{
 		{Token: testJWT},
 		{Token: testJWT, RequiredPermissions: []string{"a"}},
-		{Token: testJWT, ResourceType: "r", ResourceID: "1"},
+		{Token: testJWT, IncludePermissions: true},
 	}
 	for _, s := range shapes {
 		if _, err := c.ValidateTokenWith(ctx, s); err != nil {

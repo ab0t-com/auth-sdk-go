@@ -13,13 +13,17 @@ import (
 
 // ===================== Models: API keys =====================
 
-// APIKeyCreate is the body for POST /api-keys/.
+// APIKeyCreate is the body for POST /api-keys/. Fields mirror the goauth
+// createRequest handler struct (apikeyshttp.go:94-99): {name, permissions,
+// rate_limit, expires_at}. The server ignores anything else, so org_id/audience
+// (which it never read) were removed — they gave a false "scoped the key" signal.
 type APIKeyCreate struct {
 	Name        string   `json:"name"`
 	Permissions []string `json:"permissions,omitempty"`
-	OrgID       string   `json:"org_id,omitempty"`
-	ExpiresAt   string   `json:"expires_at,omitempty"`
-	Audience    []string `json:"audience,omitempty"`
+	// RateLimit sets the key's requests-per-window limit AT CREATE (previously only
+	// settable on update, so a key was born with the default until a second call).
+	RateLimit *int64 `json:"rate_limit,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
 }
 
 // APIKeyUpdate is the body for PUT /api-keys/{key_id}.
@@ -29,11 +33,12 @@ type APIKeyUpdate struct {
 	// IsActive enables/disables the key. The server field is `is_active`; an
 	// earlier revision sent `enabled`, which the server ignored — so toggling a
 	// key through the SDK silently did nothing.
-	IsActive  *bool          `json:"is_active,omitempty"`
-	RateLimit *int64         `json:"rate_limit,omitempty"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
+	IsActive  *bool  `json:"is_active,omitempty"`
+	RateLimit *int64 `json:"rate_limit,omitempty"`
 	// ExpiresAt is not in the server's update schema (kept for compatibility;
-	// the server ignores it — update expiry is not currently supported).
+	// the server ignores it — update expiry is not currently supported). This is a
+	// KNOWN, allow-listed over-exposure: it is documented here so callers aren't
+	// misled, but the field is retained to avoid churn. See contract gate allow-list.
 	ExpiresAt *string `json:"expires_at,omitempty"`
 }
 

@@ -13,49 +13,54 @@ import (
 
 // ===================== Models: providers =====================
 
-// ProviderConfigCreate is the body for POST /providers/.
+// ProviderConfigCreate is the body for POST /providers/. Fields mirror the goauth
+// createRequest handler (providerswire/handlers.go:125-134). The provider kind is
+// provider_type (NOT type), and provider-specific settings (client_id,
+// client_secret, issuer_url, domain, ...) go INSIDE Config — the API has no
+// top-level fields for them, so the pre-v0.11.0 top-level ClientID/ClientSecret/
+// IssuerURL/Domain were silently dropped. A new provider is active by default
+// (there is no create-time is_active/enabled).
 type ProviderConfigCreate struct {
 	Name         string         `json:"name"`
-	Type         string         `json:"type"` // e.g. "oidc", "saml", "google", "okta"
-	Enabled      bool           `json:"enabled,omitempty"`
-	Priority     int            `json:"priority,omitempty"`
-	ClientID     string         `json:"client_id,omitempty"`
-	ClientSecret string         `json:"client_secret,omitempty"`
-	IssuerURL    string         `json:"issuer_url,omitempty"`
-	Domain       string         `json:"domain,omitempty"`
+	ProviderType string         `json:"provider_type"` // e.g. "oidc","saml","google","okta"
+	Description  string         `json:"description,omitempty"`
 	Config       map[string]any `json:"config,omitempty"`
+	IsDefault    bool           `json:"is_default,omitempty"`
+	Priority     int            `json:"priority,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
 }
 
-// ProviderConfigUpdate is the body for PUT /providers/{provider_id}.
+// ProviderConfigUpdate is the body for PUT /providers/{provider_id}. Mirrors goauth
+// updateRequest (:139-147). Enable/disable a provider via IsActive (the server
+// field is is_active; the pre-v0.11.0 `enabled` was silently ignored, so toggling
+// a provider did nothing). Provider-specific settings go inside Config.
 type ProviderConfigUpdate struct {
-	Name         *string         `json:"name,omitempty"`
-	Enabled      *bool           `json:"enabled,omitempty"`
-	Priority     *int            `json:"priority,omitempty"`
-	ClientID     *string         `json:"client_id,omitempty"`
-	ClientSecret *string         `json:"client_secret,omitempty"`
-	IssuerURL    *string         `json:"issuer_url,omitempty"`
-	Domain       *string         `json:"domain,omitempty"`
-	Config       *map[string]any `json:"config,omitempty"`
+	Name        *string        `json:"name,omitempty"`
+	Description *string        `json:"description,omitempty"`
+	Config      map[string]any `json:"config,omitempty"`
+	IsActive    *bool          `json:"is_active,omitempty"`
+	IsDefault   *bool          `json:"is_default,omitempty"`
+	Priority    *int           `json:"priority,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
-// Provider is a provider configuration record (response shape is permissive).
+// Provider is a provider configuration record. Fields mirror the goauth
+// providerResponse (providerswire/handlers.go:152-166): the kind is provider_type,
+// the enabled flag is is_active, and provider-specific settings are inside config
+// (the API sends no top-level type/enabled/domain/issuer_url).
 type Provider struct {
 	ID           string          `json:"id"`
-	Name         string          `json:"name,omitempty"`
-	Type         string          `json:"type,omitempty"`
-	Enabled      bool            `json:"enabled,omitempty"`
-	Priority     int             `json:"priority,omitempty"`
-	Domain       string          `json:"domain,omitempty"`
-	IssuerURL    string          `json:"issuer_url,omitempty"`
-	Config       map[string]any  `json:"config,omitempty"`
-	CreatedAt    string          `json:"created_at,omitempty"`
-	Description  string          `json:"description,omitempty"`
-	IsActive     bool            `json:"is_active,omitempty"`
-	IsDefault    bool            `json:"is_default,omitempty"`
-	Metadata     json.RawMessage `json:"metadata,omitempty"`
 	OrgID        string          `json:"org_id,omitempty"`
 	ProviderType string          `json:"provider_type,omitempty"`
+	Name         string          `json:"name,omitempty"`
+	Description  string          `json:"description,omitempty"`
+	Config       map[string]any  `json:"config,omitempty"`
+	IsActive     bool            `json:"is_active,omitempty"`
+	IsDefault    bool            `json:"is_default,omitempty"`
+	Priority     int             `json:"priority,omitempty"`
 	Status       string          `json:"status,omitempty"`
+	Metadata     json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt    string          `json:"created_at,omitempty"`
 	UpdatedAt    string          `json:"updated_at,omitempty"`
 }
 

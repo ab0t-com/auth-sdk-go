@@ -51,13 +51,22 @@ type TokenSet struct {
 	Scope    string `json:"scope,omitempty"`
 }
 
-// RegisterRequest is the body for POST /auth/register.
+// RegisterRequest is the body for POST /auth/register. Fields mirror the goauth
+// registerRequest handler struct (authextra/register.go:36-42).
 type RegisterRequest struct {
-	Email        string `json:"email"`
-	Password     string `json:"password"`
-	Name         string `json:"name,omitempty"`
-	OrgID        string `json:"org_id,omitempty"`
-	ProviderType string `json:"provider_type,omitempty"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Name     string `json:"name,omitempty"`
+	OrgID    string `json:"org_id,omitempty"`
+	// InvitationCode joins an existing org by invite. It is REQUIRED to register
+	// into an org that has REQUIRE_INVITATION enabled (else the API 403s), and when
+	// set the invitation is authoritative for the resulting org/role/permissions
+	// (org_id may be omitted — the code resolves it). Previously un-modelled, which
+	// made the entire invite-join flow unreachable from the SDK.
+	InvitationCode string `json:"invitation_code,omitempty"`
+	// NOTE: the register endpoint does NOT accept provider_type (it hardcodes
+	// "internal" server-side, register.go:203). The pre-v0.11.0 ProviderType field
+	// was phantom (silently ignored) and has been removed.
 }
 
 // RefreshRequest is the body for POST /auth/refresh.
@@ -146,12 +155,20 @@ type Resource struct {
 // IsZero reports whether no resource was specified.
 func (r Resource) IsZero() bool { return r.Type == "" && r.ID == "" }
 
-// TokenValidationRequest is the body for POST /auth/validate-token.
+// TokenValidationRequest is the body for POST /auth/validate-token. Fields mirror
+// the goauth TokenValidationRequest handler struct (internal/models/auth.go:56-62):
+// {token, required_permissions, expected_audience, include_permissions}.
+//
+// SECURITY: this endpoint has NO resource scoping — it answers only "is this token
+// valid and does the subject hold these permissions AT ALL?". The pre-v0.11.0
+// ResourceType/ResourceID fields were silently DROPPED by the server, so a caller
+// that set them believed they had scoped the check to a resource when they had not
+// (a cross-resource privilege-escalation footgun). They have been REMOVED. For a
+// resource-scoped decision use Authorize(ctx, token, action, Resource{Type, ID}),
+// which routes to the resource-aware permission decision point.
 type TokenValidationRequest struct {
 	Token               string   `json:"token"`
 	RequiredPermissions []string `json:"required_permissions,omitempty"`
-	ResourceType        string   `json:"resource_type,omitempty"`
-	ResourceID          string   `json:"resource_id,omitempty"`
 	ExpectedAudience    string   `json:"expected_audience,omitempty"`
 	IncludePermissions  bool     `json:"include_permissions,omitempty"`
 }
@@ -330,21 +347,26 @@ type UserOrganizationInfo struct {
 
 // Organization is the result of GET /organizations/{org_id}.
 type Organization struct {
-	ID              string         `json:"id"`
-	Name            string         `json:"name"`
-	Slug            string         `json:"slug,omitempty"`
-	Domain          string         `json:"domain,omitempty"`
-	ParentID        string         `json:"parent_id,omitempty"`
-	ServiceAudience string         `json:"service_audience,omitempty"`
-	BillingType     string         `json:"billing_type,omitempty"`
-	Status          string         `json:"status,omitempty"`
-	Timezone        string         `json:"timezone,omitempty"`
-	Settings        map[string]any `json:"settings,omitempty"`
-	Metadata        map[string]any `json:"metadata,omitempty"`
-	CreatedAt       string         `json:"created_at,omitempty"`
-	Industry        string         `json:"industry,omitempty"`
-	LogoURL         string         `json:"logo_url,omitempty"`
-	Size            string         `json:"size,omitempty"`
-	UpdatedAt       string         `json:"updated_at,omitempty"`
-	Website         string         `json:"website,omitempty"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Slug            string `json:"slug,omitempty"`
+	Domain          string `json:"domain,omitempty"`
+	ParentID        string `json:"parent_id,omitempty"`
+	ServiceAudience string `json:"service_audience,omitempty"`
+	// AudienceStatus makes a NULL service audience observable without minting a
+	// token: "bound" when a real audience resolves, "local_fallback" when the org
+	// would mint aud=["LOCAL:<org_id>"]. Always present on the wire (goauth
+	// orgResponse.audience_status, orgs/orgs.go:457); previously un-modelled.
+	AudienceStatus string         `json:"audience_status,omitempty"`
+	BillingType    string         `json:"billing_type,omitempty"`
+	Status         string         `json:"status,omitempty"`
+	Timezone       string         `json:"timezone,omitempty"`
+	Settings       map[string]any `json:"settings,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
+	CreatedAt      string         `json:"created_at,omitempty"`
+	Industry       string         `json:"industry,omitempty"`
+	LogoURL        string         `json:"logo_url,omitempty"`
+	Size           string         `json:"size,omitempty"`
+	UpdatedAt      string         `json:"updated_at,omitempty"`
+	Website        string         `json:"website,omitempty"`
 }
