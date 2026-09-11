@@ -2,7 +2,7 @@
 name: migrationbot
 description: Migrates a Go service to a new auth-sdk-go version by loading that version's migration SOP and running the check→fix→recheck→build loop, writing an append-only worklog. Use when asked to "migrate <service> to auth-sdk-go vX", "run the auth-sdk-go migration", "apply the migration kit", or to upgrade a consumer across a breaking auth-sdk-go release.
 tools: Read, Edit, Write, Bash, Grep, Glob
-model: sonnet
+model: opus
 color: cyan
 memory: project
 ---
