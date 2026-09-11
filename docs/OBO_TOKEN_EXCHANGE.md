@@ -76,7 +76,7 @@ Missing either is the usual cause of a failed exchange.
    A cannot mint a token for an arbitrary service.
 
 2. **A read-only `may_act` delegation grant exists (A may act for U).**
-   A same-realm `may_act` grant bounds the exchange
+   A same-org `may_act` grant bounds the exchange
    (appv2 `permission_service.py:806-835`). Without a grant, A has no authority
    to act for U (except the break-glass case below).
 
@@ -93,7 +93,7 @@ them into one repeatable provisioning step.
 - **Audience-keyed on top.** Token exchange adds audience-keying
   (`auth_service_base.py:3356-3371`) over the same org-bound `may_act` store — so
   to reach a `service_audience`-owner-only resource, A needs **both** the
-  same-realm `may_act` grant **and** B registered as that org's service audience.
+  same-org `may_act` grant **and** B registered as that org's service audience.
 - **Fail-closed scope narrowing.** The requested `scope` is bounded by
   (1) the `DELEGATION#{actor}#{target}` grant ceiling
   (`permission_service.py:830-835`), (2) the subject's authority, and
@@ -122,7 +122,7 @@ of `*` as a privileged/break-glass path.
 | `invalid_target` (400) | B is not the org's registered `service_audience` (`auth_service_base.py:3356-3371`) | Register B as the org's service audience (prerequisite 1) |
 | Empty-scope / denied | no `may_act` grant, or requested scope narrows to empty (`token_exchange.py:58`) | Create a read-only `may_act` grant (prerequisite 2); request a scope within the grant ceiling |
 | `unsupported_grant_type` (400) | server build predates the exchange endpoint / URN | Deploy a current build (URN added 2026-08-17; endpoint since 2026-07-07) |
-| `delegation_wrong_org` | the grant is in a different org than the subject (`permission_service.py:806-817`) | Grant `may_act` in the subject's realm |
+| `delegation_wrong_org` | the grant is in a different org than the subject (`permission_service.py:806-817`) | Grant `may_act` in the subject's org |
 
 > **goauth caveat.** A goauth-minted delegation token is currently **rejected by
 > the mesh validate path**: `oauthexch.go:32-66` computes `act`/`scope`/`may_act`
