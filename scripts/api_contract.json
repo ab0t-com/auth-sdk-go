@@ -110,6 +110,12 @@
     "request_accepts": ["redirect_uris","client_name","grant_types","response_types","scope","token_endpoint_auth_method","contacts","logo_uri","policy_uri","client_uri","tos_uri","software_id","software_version"]
   },
 
+  "POST /auth/oauth/token": {
+    "note": "RFC 8693 token-exchange (OBO) response, §2.2.1 — appv2 _generate_delegated_token (auth_service_base.py:3087-3099); bound to ExchangeResponse via ExchangeToken. Request is form-encoded (grant_type URN via TokenExchangeForm), not a JSON struct, so this pins the RESPONSE only. ExchangeResponse surfaces issued_token_type which TokenResponse (the raw OAuthToken path) drops.",
+    "response_envelope": "object",
+    "response_returns": ["access_token","issued_token_type","token_type","expires_in","scope"]
+  },
+
   "GET /teams/{team_id}/members": {
     "note": "goauth teams/teams.go:272-278",
     "response_envelope": "array",

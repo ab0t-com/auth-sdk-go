@@ -226,6 +226,105 @@ func (c *Client) RefreshTokenForm(ctx context.Context, refreshToken string) (*To
 	return &out, nil
 }
 
+// ---- RFC 8693 token exchange (on-behalf-of / delegation) ----
+
+// GrantTypeTokenExchange is the RFC 8693 grant_type URN for OAuth 2.0 Token
+// Exchange — the on-behalf-of (OBO) / delegation flow in which app/agent A
+// exchanges user U's token for one it can present to mesh service B as U.
+const GrantTypeTokenExchange = "urn:ietf:params:oauth:grant-type:token-exchange"
+
+// RFC 8693 §3 token-type identifiers. The exchange defaults both the
+// subject_token_type and the requested_token_type to access_token.
+const (
+	TokenTypeAccessToken  = "urn:ietf:params:oauth:token-type:access_token"
+	TokenTypeRefreshToken = "urn:ietf:params:oauth:token-type:refresh_token"
+	TokenTypeIDToken      = "urn:ietf:params:oauth:token-type:id_token"
+)
+
+// ExchangeOption customizes a token-exchange request built by TokenExchangeForm
+// / ExchangeToken. Options are applied after the defaults, in order, so a
+// With*TokenType option overrides the access_token default.
+type ExchangeOption func(url.Values)
+
+// WithScope requests a specific (space-delimited) scope for the exchanged token.
+// The server narrows it fail-closed against the delegation-grant ceiling — it is
+// never widened, and an empty resulting scope is denied. Omit to accept the
+// grant's default scope. (See FINDINGS Q5 / permission_service.py:830-848.)
+func WithScope(scope string) ExchangeOption {
+	return func(v url.Values) { v.Set("scope", scope) }
+}
+
+// WithActorToken supplies the RFC 8693 actor_token (the party acting on the
+// subject's behalf) for the delegation/composite case. Per RFC 8693 §2.1
+// actor_token_type is required when actor_token is present, so this also sets
+// actor_token_type to access_token.
+func WithActorToken(actorToken string) ExchangeOption {
+	return func(v url.Values) {
+		v.Set("actor_token", actorToken)
+		v.Set("actor_token_type", TokenTypeAccessToken)
+	}
+}
+
+// WithSubjectTokenType overrides the subject_token_type (default: access_token).
+func WithSubjectTokenType(tokenType string) ExchangeOption {
+	return func(v url.Values) { v.Set("subject_token_type", tokenType) }
+}
+
+// WithRequestedTokenType overrides the requested_token_type (default: access_token).
+func WithRequestedTokenType(tokenType string) ExchangeOption {
+	return func(v url.Values) { v.Set("requested_token_type", tokenType) }
+}
+
+// ExchangeResponse is the RFC 8693 §2.2.1 token-exchange response. Unlike
+// TokenResponse it surfaces issued_token_type — the type of the returned
+// security token — which the plain token response silently drops.
+type ExchangeResponse struct {
+	AccessToken     string `json:"access_token,omitempty"`
+	IssuedTokenType string `json:"issued_token_type,omitempty"`
+	TokenType       string `json:"token_type,omitempty"`
+	ExpiresIn       int    `json:"expires_in,omitempty"`
+	Scope           string `json:"scope,omitempty"`
+}
+
+// TokenExchangeForm builds the RFC 8693 token-exchange (on-behalf-of) form for
+// POST /auth/oauth/token: grant_type is the token-exchange URN, subject_token is
+// the token being exchanged (typically the end user's access token), and
+// audience names the mesh service the exchanged token is minted for — which must
+// be that org's registered service_audience or the server returns invalid_target.
+// subject_token_type and requested_token_type both default to access_token;
+// override with the With*TokenType options. Optional: WithScope, WithActorToken.
+//
+// It mirrors RefreshTokenForm — a typed builder for the raw OAuthToken form path.
+func TokenExchangeForm(subjectToken, audience string, opts ...ExchangeOption) url.Values {
+	form := url.Values{}
+	form.Set("grant_type", GrantTypeTokenExchange)
+	form.Set("subject_token", subjectToken)
+	form.Set("subject_token_type", TokenTypeAccessToken)
+	form.Set("requested_token_type", TokenTypeAccessToken)
+	if audience != "" {
+		form.Set("audience", audience)
+	}
+	for _, opt := range opts {
+		opt(form)
+	}
+	return form
+}
+
+// ExchangeToken performs an RFC 8693 token exchange (on-behalf-of): it exchanges
+// subjectToken for a token minted for audience, using the SAME token endpoint,
+// transport, and OAuth error-envelope mapping as OAuthToken, and decodes the
+// §2.2.1 body (including issued_token_type) into an ExchangeResponse. It requires
+// two provisioning prerequisites — audience registered as the org's
+// service_audience and a read-only may_act delegation grant; see
+// docs/OBO_TOKEN_EXCHANGE.md. POST /auth/oauth/token (form-encoded).
+func (c *Client) ExchangeToken(ctx context.Context, subjectToken, audience string, opts ...ExchangeOption) (*ExchangeResponse, error) {
+	var out ExchangeResponse
+	if err := c.doForm(ctx, "/auth/oauth/token", TokenExchangeForm(subjectToken, audience, opts...), &out, ""); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // RegisterClient performs RFC 7591 dynamic client registration.
 // POST /auth/oauth/register.
 func (c *Client) RegisterClient(ctx context.Context, req ClientRegistration) (*ClientRegistrationResponse, error) {

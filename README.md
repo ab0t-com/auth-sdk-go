@@ -111,7 +111,7 @@ each to the endpoint that can resolve it, so agents and humans go through exactl
 | **AuthZ (ReBAC / Zanzibar)** | `ZanzibarCheck`(+`Bulk`/`Wildcard`), `Expand`, `List(Objects\|Users)`, relationship write/delete, namespaces, hierarchy, visualize, watch |
 | **Users** | CRUD, profile, password reset, **self-delete (`DeleteCurrentUser`)** |
 | **Organizations & teams** | CRUD, membership, roles, invitations, session revocation |
-| **API keys & delegation** | create/list/update/delete, service accounts, delegation grant/check |
+| **API keys & delegation** | create/list/update/delete, service accounts, delegation grant/check, **on-behalf-of token exchange (`ExchangeToken`, RFC 8693) — see [docs/OBO_TOKEN_EXCHANGE.md](docs/OBO_TOKEN_EXCHANGE.md)** |
 | **SSO / federation** | providers, SAML, OAuth/OIDC, attribute mappings, JIT provisioning |
 | **Mesh** | `ListMeshProviders`, `GetMeshProvider`, `PublishMeshProvider` |
 | **Admin & system** | password policy, privilege elevation, super-admin grants, quotas, events, health |
@@ -306,6 +306,7 @@ the warnings from if the server ever ships them.
 | | |
 |---|---|
 | [`docs/USAGE.md`](docs/USAGE.md) | The cookbook — task-shaped recipes, install to troubleshooting |
+| [`docs/OBO_TOKEN_EXCHANGE.md`](docs/OBO_TOKEN_EXCHANGE.md) | On-behalf-of (RFC 8693) token exchange — `ExchangeToken`, the two prerequisites, the org-bound / fail-closed rules |
 | [`docs/CLI.md`](docs/CLI.md) | Complete command and flag reference |
 | [`skills/auth-sdk-go-concepts`](skills/auth-sdk-go-concepts/SKILL.md) | The mental model: two authz systems, typed ids, tenancy, nested orgs |
 | [`skills/auth-sdk-go-cli`](skills/auth-sdk-go-cli/SKILL.md) | Operating the CLI |

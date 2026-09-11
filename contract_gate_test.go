@@ -65,6 +65,7 @@ var contractBindings = map[string]binding{
 	"PUT /providers/{provider_id}":                               {req: ProviderConfigUpdate{}},
 	"POST /organizations/{org_id}/invite":                        {req: OrganizationInvite{}, resp: InviteResult{}},
 	"POST /auth/oauth/register":                                  {req: ClientRegistration{}},
+	"POST /auth/oauth/token":                                     {resp: ExchangeResponse{}},
 	"GET /teams/{team_id}/members":                               {resp: TeamMember{}, respArray: true},
 	"GET /teams/{team_id}/permissions":                           {resp: TeamPermissionsResponse{}},
 	"POST /organizations/":                                       {req: OrganizationCreate{}},

@@ -4,6 +4,28 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] — 2026-09-11 — OBO / RFC 8693 token-exchange helper
+
+> Purely **additive, backwards-compatible**: existing `OAuthToken` / `TokenResponse`
+> behavior is unchanged (guarded by a test). Prepared by ticket
+> `auth/output/tickets/20260911_obo_token_exchange_productization` (Phase 1 + 2).
+
+### Added — on-behalf-of (OBO) token exchange
+
+- `GrantTypeTokenExchange` const + token-type consts (`TokenTypeAccessToken`,
+  `TokenTypeRefreshToken`, `TokenTypeIDToken`).
+- `ExchangeOption` functional options: `WithScope`, `WithActorToken`,
+  `WithSubjectTokenType`, `WithRequestedTokenType`.
+- `TokenExchangeForm(subjectToken, audience, opts...) url.Values` — builds the
+  RFC 8693 form (mirrors `RefreshTokenForm`); defaults both token-types to
+  access_token.
+- `ExchangeResponse` (§2.2.1) — surfaces `issued_token_type`, which `TokenResponse`
+  drops.
+- `(*Client).ExchangeToken(ctx, subjectToken, audience, opts...) (*ExchangeResponse, error)`
+  — same transport + OAuth error-envelope mapping as `OAuthToken`.
+- Docs: `docs/OBO_TOKEN_EXCHANGE.md` (+ README cross-links); runnable
+  `examples/obo`. Contract gate extended (`POST /auth/oauth/token` response pin).
+
 ## [0.11.0] — 2026-09-07 — CLASS-34 contract-fidelity (BREAKING)
 
 > Prepared by ticket `20260907_class_sdk_api_struct_parity`. This is a
