@@ -13,7 +13,7 @@ The auth service's own implementation details are internal to the server, not to
 
 ## 2026-08-28 — contract-fidelity release (proposed v0.10.0)
 
-All entries are **EXTERNAL** (client-visible). Ticket: `tickets/20260827_sdk_contract_drift/`.
+All entries are **EXTERNAL** (client-visible).
 
 ### Behavioural
 - **`Authorize()` resource scoping (F-01)** — EXTERNAL. A resource-scoped `Authorize` now routes to

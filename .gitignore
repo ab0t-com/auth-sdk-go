@@ -141,3 +141,6 @@ Thumbs.db
 # vendor/ is intentionally NOT ignored: consumers may vendor this module.
 go.work
 go.work.sum
+
+# Local tooling archive (never ship)
+.archive/

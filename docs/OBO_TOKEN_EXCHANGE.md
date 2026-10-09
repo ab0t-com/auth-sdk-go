@@ -1,153 +1,186 @@
-# On-behalf-of (OBO) token exchange — RFC 8693
+# Tokens for other mesh services — `TokenFor` (and on-behalf-of token exchange)
 
-**The pattern.** App or agent **A** holds end user **U**'s access token and needs
-to call mesh service **B** *as U* — with an audit trail attributing the call to
-"A acting for U" and with least privilege (read-only unless granted more). OBO
-is **OAuth 2.0 Token Exchange** ([RFC 8693](https://www.rfc-editor.org/rfc/rfc8693)):
-A exchanges U's token for a short-lived **delegation token** minted for B, then
-presents that token to B.
+**The pattern.** App or agent **A** needs to call mesh service **B**. Either A calls B **as itself**
+(no person involved), or A calls B **for a signed-in person U** — with the call attributed to
+"A acting for U" and limited to what U may do and allowed. Both are standard OAuth on the wire:
 
-This is already implemented server-side on both engines (appv2 and goauth) with
-no feature flag. The SDK helper below is a typed wrapper over the raw
-`OAuthToken` form path — it does not add or change any server behavior.
+| A calls B… | Standard | `TokenFor` session argument |
+|---|---|---|
+| as itself | client credentials (RFC 6749 §4.4) + resource indicator (RFC 8707) | `nil` |
+| for person U | token exchange (RFC 8693): U's token is the `subject_token` | U's session with A |
 
-> Grounding: all server-side facts here cite the code investigation in
-> `auth/output/tickets/20260907_ordo_obo_token_exchange/FINDINGS.md`.
+`TokenFor` is the one call for both. `ExchangeToken` / `OAuthToken` remain for callers that need the
+raw form post.
 
 ---
 
 ## The call
 
 ```go
-c := auth.New("https://auth.service.ab0t.com")
+c := auth.New(authURL, auth.WithClientCredentials(clientID, clientSecret)) // A's OAuth client, sent as HTTP Basic
 
-resp, err := c.ExchangeToken(ctx,
-    userAccessToken,   // subject_token — U's token (the party being acted for)
-    "resource-service", // audience — the target mesh service B
-    auth.WithScope("resource:read"), // requested scope (narrowed fail-closed)
-)
-if err != nil {
-    // e.g. invalid_target (see prerequisites) or an empty-scope denial
-}
+// as the service itself
+tok, err := c.TokenFor(ctx, "https://b.service.example", "b.documents.read", nil)
 
-// resp.AccessToken     — the delegated token to present to B (as U)
-// resp.IssuedTokenType  — urn:...:access_token  (surfaced; TokenResponse drops it)
-// resp.TokenType        — "Bearer"
-// resp.ExpiresIn        — ~900s (15-minute delegation token)
-// resp.Scope            — the granted (possibly narrowed) scope
+// for the signed-in person (session = the person's session with A; StaticSession adapts a token)
+tok, err = c.TokenFor(ctx, "https://b.service.example", "b.documents.read", auth.StaticSession(personToken))
+
+req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
 ```
 
-A complete, runnable example is in **[`examples/obo`](../examples/obo/main.go)**.
+`Token` carries `AccessToken`, `TokenType`, `Resource`, `Scope` (granted) and `ExpiresAt`.
 
-### Why a dedicated response type
+- **One resource per token.** Send it only to the resource it was requested for. Never forward a token
+  you received to another service — get your own with `TokenFor`.
+- **Cached.** Each token is served from memory until 30 s before it expires; the key is the pattern, the
+  resource, the scope set and (for a person) a hash of the person's token — a new sign-in is a new key.
+  A derived token is never served past the person's own token expiry. The cache is bounded
+  (`WithTokenCacheSize`, least recently used dropped first), concurrent callers for one key share one
+  request, and errors are never cached. Call `TokenFor` per request.
+- **No refresh tokens.** Neither pattern returns one; renewing is asking again.
+- **Only client credentials reach the token endpoint.** A client also configured `WithAPIKey` does not
+  send that key on these calls.
 
-`ExchangeToken` returns `ExchangeResponse`, not `TokenResponse`. The RFC 8693
-§2.2.1 body carries **`issued_token_type`** (the type of the returned token),
-which the plain `TokenResponse` silently drops (`oauth.go:37-44`). The raw
-`OAuthToken(form)` path still works for token exchange, but it cannot surface
-`issued_token_type` — that is the reason this helper exists.
+A complete, runnable program: **[`examples/obo`](../examples/obo/main.go)**.
 
-### The form
+---
 
-`TokenExchangeForm(subjectToken, audience, opts...)` builds the RFC 8693 form
-(mirroring `RefreshTokenForm`):
+## Today's services: the bridge (`WithLegacyActorExchange`)
+
+The person-present request TokenFor sends by default is the target shape (RFC 8693 §2.1):
+
+```
+POST /auth/oauth/token   Authorization: Basic <A's client_id:client_secret>
+grant_type=urn:ietf:params:oauth:grant-type:token-exchange
+&subject_token=<U's access token>&subject_token_type=urn:ietf:params:oauth:token-type:access_token
+&resource=<B>&scope=<scope>                       (no actor_token — the authenticated client IS the actor)
+```
+
+Auth services that do not accept that yet exchange a person's token with **A's own token as the
+`actor_token`** and an `audience`. Turn that chain on behind the same call:
+
+```go
+c := auth.New(authURL,
+    auth.WithClientCredentials(clientID, clientSecret),
+    auth.WithLegacyActorExchange("SELF:<org id>"), // or the org's registered service audience
+)
+tok, err := c.TokenFor(ctx, "SELF:<org id>", "users.read", auth.StaticSession(personToken))
+```
+
+TokenFor then (1) mints A's own token with client credentials (HTTP Basic, cached), and (2) exchanges
+U's token with `actor_token` = that token, `actor_token_type` = access_token, `audience` = the value
+you gave (empty → the `resource` argument) and your `scope`. When the service supports the target
+request, delete the option — nothing else in your code changes.
+
+### One-time setup for the bridge
+
+1. **A's identity in the org whose resource it calls.** An admin of that org creates a service account
+   and a confidential OAuth client bound to it (grant type `client_credentials`). `authsetup obo-actor`
+   does both and prints the service account's **user id** (the actor id) and the client id + secret
+   (shown once). The actor id — not the client id — is what a grant names.
+2. **Each person grants A, once,** with their own token, from a session **in that same org** (a grant
+   created from a session in a child/workspace org is accepted but never used — switch first with
+   `SwitchOrganization`):
+   ```go
+   hours := 720
+   _, err := c.GrantDelegation(ctx, auth.DelegationGrant{ActorID: actorID, Scope: []string{"users.read"},
+       ExpiresInHours: &hours}, personToken)
+   ```
+   `authsetup obo-enable` creates the same grant and checks that the person's token audience matches;
+   it does not register an audience.
+3. **The audience** in `WithLegacyActorExchange` must be one the acting org recognises: its registered
+   service audience, or `SELF:<org id>`. Anything else is `invalid_target`.
+
+Scopes are mesh permissions in dotted form (`<service>.<action>.<resource>` or e.g. `users.read`), and
+they must be ones the person holds and granted.
+
+---
+
+## What the answers mean
+
+All token-endpoint errors are `{"error": "...", "error_description": "..."}`. TokenFor classifies by the
+HTTP status and `error` / `suberror` only (never the free-text description). Test with `errors.Is`
+(sentinels) and `errors.As` (`*auth.ConsentRequired`, `*auth.APIError` — always still reachable).
+
+| Wire | TokenFor returns | You do |
+|---|---|---|
+| 400 `invalid_request` **or** `invalid_grant` (for a person) | `ErrReauthenticate` | the person's token was not accepted (expired, revoked, not for your app, they left the org). Sign them in again; retry once. On the bridge it also covers "no grant from this person" — the service deliberately does not say which |
+| 400 `invalid_target` + `"suberror":"consent_required"` | `*ConsentRequired` | the person can approve: send them to `consent.AuthorizationURL(redirectURI, state, challenge)` once (`NewPKCE` makes the challenge), then retry |
+| 400 `invalid_target` | `ErrNoConnection` | no usable connection to that resource, or the resource / audience is unknown or malformed — an admin must fix it |
+| 400 `invalid_scope` | `ErrScopeNotAllowed` | asked for more than the client / grant allows — ask for less |
+| 401 `invalid_client` | `ErrClientAuth` | your client credentials are wrong — fix or rotate the secret |
+| 400 `unauthorized_client` | `ErrClientNotEnabled` | your client is not registered for that grant type |
+| 5xx, 429, network failure, cancelled context | `ErrUnavailable` | back off and retry; never treat as allowed, never reuse an expired token |
+| 400 `unsupported_grant_type` | the raw `*APIError` | the service does not support the grant |
+
+Services are moving the person-token rejections from `invalid_grant` to `invalid_request` (RFC 8693
+§2.2.2); TokenFor treats both alike so your code does not change. On the machine pattern an
+`invalid_request` is a malformed request and is returned as the raw `*APIError`.
+
+`ConsentRequired.AuthorizationURL` is built from the auth service's RFC 8414 metadata
+(`authorization_endpoint`) with `response_type=code`, your `client_id`, `redirect_uri`, `scope`,
+`resource`, `state`, the PKCE S256 challenge and `prompt=consent`. The token endpoint never hands out a
+URL.
+
+---
+
+## The raw call (`ExchangeToken`)
+
+`ExchangeToken(ctx, subjectToken, audience, opts...)` posts the RFC 8693 form and returns
+`ExchangeResponse` (it keeps `issued_token_type`, which `TokenResponse` drops). On today's services an
+exchange for a person **must** carry the actor token — without one the answer is
+`400 invalid_request`:
+
+```go
+actor, err := c.OAuthToken(ctx, url.Values{"grant_type": {"client_credentials"},
+    "client_id": {clientID}, "client_secret": {clientSecret}})
+resp, err := c.ExchangeToken(ctx, personToken, "SELF:<org id>",
+    auth.WithActorToken(actor.AccessToken), auth.WithScope("users.read"))
+```
+
+`TokenExchangeForm(subjectToken, audience, opts...)` builds the form:
 
 | field | value |
 |---|---|
 | `grant_type` | `urn:ietf:params:oauth:grant-type:token-exchange` (`GrantTypeTokenExchange`) |
 | `subject_token` | U's token |
-| `subject_token_type` | default `urn:...:access_token` — override with `WithSubjectTokenType` |
-| `requested_token_type` | default `urn:...:access_token` — override with `WithRequestedTokenType` |
-| `audience` | B (omitted if empty) |
-| `scope` | optional, via `WithScope` |
-| `actor_token` (+ `actor_token_type`) | optional, via `WithActorToken` |
+| `subject_token_type` | default `urn:...:access_token` — `WithSubjectTokenType` |
+| `requested_token_type` | default `urn:...:access_token` — `WithRequestedTokenType` |
+| `audience` | the target (omitted if empty) |
+| `resource` | `WithResource` (RFC 8707) |
+| `scope` | `WithScope` — name it; a scope beyond what may be delegated is `invalid_scope` |
+| `actor_token` (+ `actor_token_type`) | `WithActorToken` |
 
----
-
-## The two prerequisites (do these first)
-
-An exchange only mints a token when **both** are provisioned for U's org.
-Missing either is the usual cause of a failed exchange.
-
-1. **B is registered as the org's `service_audience`.**
-   `aud=B` is honored only if B is the org's registered `service_audience`;
-   otherwise the exchange returns **`invalid_target`**
-   (appv2 `auth_service_base.py:3356-3371`). This is the confused-deputy guard —
-   A cannot mint a token for an arbitrary service.
-
-2. **A read-only `may_act` delegation grant exists (A may act for U).**
-   A same-org `may_act` grant bounds the exchange
-   (appv2 `permission_service.py:806-835`). Without a grant, A has no authority
-   to act for U (except the break-glass case below).
-
-These two are tribal knowledge today; Phase 3 of the productization ticket turns
-them into one repeatable provisioning step.
+Prefer `TokenFor`: it does the client authentication, the caching and the error classification.
 
 ---
 
 ## The rules that keep it safe
 
-- **Org-bound.** `may_act` / act-as is **org-bound**
-  (`permission_service.py:806-817`, error `delegation_wrong_org`). Delegation
-  alone cannot cross an org boundary.
-- **Audience-keyed on top.** Token exchange adds audience-keying
-  (`auth_service_base.py:3356-3371`) over the same org-bound `may_act` store — so
-  to reach a `service_audience`-owner-only resource, A needs **both** the
-  same-org `may_act` grant **and** B registered as that org's service audience.
-- **Fail-closed scope narrowing.** The requested `scope` is bounded by
-  (1) the `DELEGATION#{actor}#{target}` grant ceiling
-  (`permission_service.py:830-835`), (2) the subject's authority, and
-  (3) `narrow_scope` (`token_exchange.py:58`) — **never widened**, and an **empty
-  resulting scope is denied**. Read-only is delivered via this ceiling, not a
-  per-OAuth-client hard allow-list.
-- **Attribution.** The minted token is `type:"delegation"` with a nested
-  `act` (RFC 8693 §4.1) + `may_act` (§4.4)
-  (`auth_service_base.py:3087-3099`), and the exchange emits an
-  `auth.token_exchange.issued` audit event (`:3384-3390`). "A acted for U" is
-  attributable.
-
-### Break-glass caveat (`*`)
-
-An actor holding `users.impersonate` / `users.admin` / `*` with **no** delegation
-record is granted `scope=["*"]` (`permission_service.py:840-848`). Do not rely on
-this for normal OBO — grant a scoped `may_act` instead. Treat any `resp.Scope`
-of `*` as a privileged/break-glass path.
+- **Bounded, never widened.** The exchanged token's scope is at most what the person holds, what they
+  granted, and what you asked for. A scope outside that is refused, not silently granted.
+- **Org-bound.** On the bridge, the grant, the actor and the exchange all live in one org; a grant cannot
+  reach across an org boundary.
+- **Audience-keyed.** A token is minted only for a target the acting org recognises, so A cannot mint a
+  token for an arbitrary service (the confused-deputy guard).
+- **Short-lived, no refresh token.** About 15 minutes; asking again re-checks everything.
+- **One hop at a time.** A nested `act` chain on a token records earlier actors; only the current actor's
+  grant was enforced at mint time. Do not treat the chain as N enforced delegations.
+- **Privileged actors.** An actor holding an impersonation / admin / `*` permission can be granted `*`
+  without a grant. Do not rely on that for normal app-to-app access; treat a granted scope of `*` as
+  privileged.
 
 ---
 
-## What breaks and why
+## `sub` is not always a human
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| `invalid_target` (400) | B is not the org's registered `service_audience` (`auth_service_base.py:3356-3371`) | Register B as the org's service audience (prerequisite 1) |
-| Empty-scope / denied | no `may_act` grant, or requested scope narrows to empty (`token_exchange.py:58`) | Create a read-only `may_act` grant (prerequisite 2); request a scope within the grant ceiling |
-| `unsupported_grant_type` (400) | server build predates the exchange endpoint / URN | Deploy a current build (URN added 2026-08-17; endpoint since 2026-07-07) |
-| `delegation_wrong_org` | the grant is in a different org than the subject (`permission_service.py:806-817`) | Grant `may_act` in the subject's org |
+`sub` is "the principal this token represents":
 
-> **goauth caveat.** A goauth-minted delegation token is currently **rejected by
-> the mesh validate path**: `oauthexch.go:32-66` computes `act`/`scope`/`may_act`
-> and returns them in the §2.2.1 body, but `token.Claims` cannot embed them and
-> the PDP hardcodes `Type:"access"`. OBO is end-to-end on **appv2** today; goauth
-> engine parity is a separate (deferred) work item.
+- **client credentials** → `sub` = the service account (a machine);
+- **token exchange for a person** → `sub` = the person; the acting app is identified separately —
+  `client_id` (where the service emits it) names the app, and `act.sub` names the actor on delegation
+  tokens today;
+- **normal sign-in** → `sub` = the person.
 
----
-
-## Worked example (agent → resource-service, sanitized)
-
-An AI companion (**A**) acts for user **U** to read U's resources in
-`resource-service` (**B**):
-
-1. **Provision once (prereqs):** register `resource-service` as U's org's
-   `service_audience`, and create a read-only `may_act` grant (A → U).
-2. **Get U's token** the normal way (the user's access token).
-3. **Exchange:**
-   ```go
-   resp, err := c.ExchangeToken(ctx, uToken, "resource-service",
-       auth.WithScope("resource:read"))
-   ```
-4. **Call B** with `resp.AccessToken` as the bearer. B sees a `type:"delegation"`
-   token whose `act`/`may_act` attribute the call to "A acting for U", scoped
-   read-only. The exchange is recorded as `auth.token_exchange.issued`.
-
-If step 3 returns `invalid_target`, prerequisite 1 is missing; if it denies on an
-empty scope, prerequisite 2 (the grant) is missing or too narrow.
+Key user records on `iss` + `sub` (never on email). Before attributing an action to a person, check
+whether the token was issued to an app acting for them (`client_id` / `act`), and log both.

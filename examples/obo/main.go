@@ -1,18 +1,27 @@
-// Command obo is a runnable example of the RFC 8693 token-exchange
-// (on-behalf-of) flow: an app/agent A holds end user U's access token and needs
-// to call mesh service B *as U*, with audit + least privilege. It exchanges U's
-// token for one minted for B, then would present that token to B.
+// Command obo is a runnable example of getting a token for another mesh service
+// with TokenFor — for a signed-in person (on-behalf-of), or for the service
+// itself when no person is involved.
 //
-// Two provisioning prerequisites must already be in place (see
-// docs/OBO_TOKEN_EXCHANGE.md):
-//   - B ("resource-service" below) is registered as U's org's service_audience;
-//   - a read-only may_act delegation grant exists (A may act for U).
+// App A holds person U's access token and needs to call service B *as U*, with
+// the call attributed to "A acting for U" and limited to what U allowed. A's
+// identity is its OAuth client (client_id + client_secret). TokenFor picks the
+// pattern from the session argument:
 //
-// Otherwise the exchange returns invalid_target (unregistered audience) or an
-// empty-scope denial (no/insufficient delegation grant).
+//   - SUBJECT_TOKEN set   → for the person (RFC 8693 token exchange)
+//   - SUBJECT_TOKEN empty → for the service itself (client credentials)
 //
-//	AUTH_URL=https://auth.service.ab0t.com \
-//	SUBJECT_TOKEN=<end-user access token> \
+// Today's auth services exchange a person's token with the app's own token as
+// the RFC 8693 actor_token, an audience naming B, and a delegation grant from
+// the person to the app's identity (see docs/OBO_TOKEN_EXCHANGE.md for the
+// one-time setup). WithLegacyActorExchange runs exactly that chain behind
+// TokenFor; drop the option once the service accepts the client-authenticated
+// exchange, and nothing else in this program changes.
+//
+//	AUTH_URL=http://localhost:8001 \
+//	CLIENT_ID=<A's client_id> CLIENT_SECRET=<A's client_secret> \
+//	AUDIENCE=<B's service audience, e.g. SELF:<org id>> \
+//	SCOPE=<a permission U granted, e.g. users.read> \
+//	SUBJECT_TOKEN=<U's access token> \
 //	go run ./examples/obo
 package main
 
@@ -29,43 +38,63 @@ import (
 
 func main() {
 	baseURL := envOr("AUTH_URL", "http://localhost:8001")
-	subjectToken := os.Getenv("SUBJECT_TOKEN") // the end user's access token
-	if subjectToken == "" {
-		log.Fatal("set SUBJECT_TOKEN to the end user's access token")
+	clientID, clientSecret := os.Getenv("CLIENT_ID"), os.Getenv("CLIENT_SECRET")
+	if clientID == "" || clientSecret == "" {
+		log.Fatal("set CLIENT_ID and CLIENT_SECRET to your app's confidential client credentials")
 	}
-	audience := envOr("AUDIENCE", "resource-service") // the target mesh service (its org service_audience)
+	audience := os.Getenv("AUDIENCE") // B's registered service audience (today's exchange names it)
+	resource := envOr("RESOURCE", audience)
+	scope := os.Getenv("SCOPE")
 
-	c := auth.New(baseURL)
+	c := auth.New(baseURL,
+		auth.WithClientCredentials(clientID, clientSecret),
+		auth.WithLegacyActorExchange(audience), // bridge: remove when the service supports the target exchange
+	)
+
+	var session auth.Session // nil = the service acts as itself
+	if t := os.Getenv("SUBJECT_TOKEN"); t != "" {
+		session = auth.StaticSession(t) // in a real app: the person's session with your app
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// Exchange U's token for one minted for the target service, read-only.
-	// WithScope narrows fail-closed against the delegation grant's ceiling; it
-	// is never widened. Omit it to accept the grant's default scope.
-	resp, err := c.ExchangeToken(ctx, subjectToken, audience,
-		auth.WithScope("resource:read"),
-	)
-	if err != nil {
-		var ae *auth.APIError
-		if errors.As(err, &ae) && ae.Code == "invalid_target" {
-			log.Fatalf("exchange rejected: %q is not this org's registered service_audience "+
-				"(register it + create a read-only may_act grant first)", audience)
-		}
-		log.Fatalf("token exchange failed: %v", err)
+	tok, err := c.TokenFor(ctx, resource, scope, session)
+	var consent *auth.ConsentRequired
+	switch {
+	case err == nil:
+	case errors.Is(err, auth.ErrReauthenticate):
+		log.Fatal("the person's token was not accepted (expired, wrong org, or no grant for this app) — sign them in again")
+	case errors.As(err, &consent):
+		_, challenge, _ := auth.NewPKCE() // keep the verifier (first value) for the code exchange at your redirect URI
+		log.Fatalf("the person must approve access once: %s",
+			consent.AuthorizationURL("https://your-app.example/callback", "state", challenge))
+	case errors.Is(err, auth.ErrNoConnection):
+		log.Fatalf("%q is not a target this app may reach (unknown audience/resource, or not approved)", resource)
+	case errors.Is(err, auth.ErrScopeNotAllowed):
+		log.Fatalf("scope %q is more than this app / grant allows", scope)
+	case errors.Is(err, auth.ErrClientAuth):
+		log.Fatal("the client credentials were rejected — check or rotate the secret")
+	case errors.Is(err, auth.ErrClientNotEnabled):
+		log.Fatal("the client is not registered for this grant type")
+	case errors.Is(err, auth.ErrUnavailable):
+		log.Fatalf("auth could not answer — back off and retry: %v", err)
+	default:
+		log.Fatalf("TokenFor: %v", err)
 	}
 
-	// resp.AccessToken is the delegated token to present to the target service.
-	// resp.IssuedTokenType is surfaced here (TokenResponse would drop it).
-	fmt.Printf("issued_token_type: %s\n", resp.IssuedTokenType)
-	fmt.Printf("token_type:        %s\n", resp.TokenType)
-	fmt.Printf("expires_in:        %d\n", resp.ExpiresIn)
-	fmt.Printf("scope:             %s\n", resp.Scope)
-	fmt.Printf("access_token:      %s...(truncated)\n", head(resp.AccessToken, 12))
-
-	// Next: call the target service with resp.AccessToken as the bearer; the
-	// service sees a delegation token carrying act/may_act attributing the call
-	// to "A acting for U".
+	pattern := "service (client credentials)"
+	if session != nil {
+		pattern = "person (token exchange)"
+	}
+	fmt.Printf("pattern:    %s\n", pattern)
+	fmt.Printf("resource:   %s\n", tok.Resource)
+	fmt.Printf("scope:      %s\n", tok.Scope)
+	fmt.Printf("token_type: %s\n", tok.TokenType)
+	fmt.Printf("expires_in: ~%ds\n", int(time.Until(tok.ExpiresAt).Seconds()))
+	// Next: call B with "Authorization: Bearer "+tok.AccessToken. Call TokenFor
+	// again for every request — it serves the cached token until shortly before
+	// it expires; there is no refresh token to manage.
 }
 
 func envOr(k, def string) string {
@@ -73,11 +102,4 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
-}
-
-func head(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
 }

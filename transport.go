@@ -116,6 +116,13 @@ func (c *Client) doRaw(ctx context.Context, method, path, contentType string, bo
 //
 // On 429/503 the Retry-After header is honored when present.
 func (c *Client) do(ctx context.Context, method, path, contentType string, body []byte, out any, bearer string) error {
+	return c.send(ctx, method, path, contentType, body, out, func(r *http.Request) { c.applyCommon(r, bearer) })
+}
+
+// send is do with the request's headers set by prep instead of from a bearer
+// credential. TokenFor uses it to send HTTP Basic client authentication and
+// nothing else (no service API key) to the token endpoint.
+func (c *Client) send(ctx context.Context, method, path, contentType string, body []byte, out any, prep func(*http.Request)) error {
 	endpoint := stripQuery(path)
 
 	for attempt := 0; ; attempt++ {
@@ -130,7 +137,7 @@ func (c *Client) do(ctx context.Context, method, path, contentType string, body 
 		if contentType != "" && body != nil {
 			req.Header.Set("Content-Type", contentType)
 		}
-		c.applyCommon(req, bearer)
+		prep(req)
 
 		started := time.Now()
 		resp, err := c.http.Do(req)
@@ -186,15 +193,21 @@ func (c *Client) do(ctx context.Context, method, path, contentType string, body 
 // hand us a credential and never have to know which header the service wants:
 // ab0t_sk_ keys go out as X-API-Key, JWTs as Authorization: Bearer.
 func (c *Client) applyCommon(req *http.Request, cred string) {
-	req.Header.Set("Accept", "application/json")
-	if c.userAgent != "" {
-		req.Header.Set("User-Agent", c.userAgent)
-	}
+	c.applyBase(req)
 	if cred == "" {
 		cred = c.apiKey
 	}
 	if name, value := CredentialHeader(cred); name != "" {
 		req.Header.Set(name, value)
+	}
+}
+
+// applyBase sets the headers every request carries (Accept, User-Agent) and no
+// credential.
+func (c *Client) applyBase(req *http.Request) {
+	req.Header.Set("Accept", "application/json")
+	if c.userAgent != "" {
+		req.Header.Set("User-Agent", c.userAgent)
 	}
 }
 

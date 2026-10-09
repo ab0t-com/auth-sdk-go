@@ -13,8 +13,8 @@ import (
 
 // ===================== Models: providers =====================
 
-// ProviderConfigCreate is the body for POST /providers/. Fields mirror the goauth
-// createRequest handler (providerswire/handlers.go:125-134). The provider kind is
+// ProviderConfigCreate is the body for POST /providers/. Fields mirror the server's
+// createRequest handler. The provider kind is
 // provider_type (NOT type), and provider-specific settings (client_id,
 // client_secret, issuer_url, domain, ...) go INSIDE Config — the API has no
 // top-level fields for them, so the pre-v0.11.0 top-level ClientID/ClientSecret/
@@ -30,8 +30,8 @@ type ProviderConfigCreate struct {
 	Metadata     map[string]any `json:"metadata,omitempty"`
 }
 
-// ProviderConfigUpdate is the body for PUT /providers/{provider_id}. Mirrors goauth
-// updateRequest (:139-147). Enable/disable a provider via IsActive (the server
+// ProviderConfigUpdate is the body for PUT /providers/{provider_id}. Mirrors the server's
+// updateRequest. Enable/disable a provider via IsActive (the server
 // field is is_active; the pre-v0.11.0 `enabled` was silently ignored, so toggling
 // a provider did nothing). Provider-specific settings go inside Config.
 type ProviderConfigUpdate struct {
@@ -44,8 +44,8 @@ type ProviderConfigUpdate struct {
 	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
-// Provider is a provider configuration record. Fields mirror the goauth
-// providerResponse (providerswire/handlers.go:152-166): the kind is provider_type,
+// Provider is a provider configuration record. Fields mirror the server's
+// providerResponse: the kind is provider_type,
 // the enabled flag is is_active, and provider-specific settings are inside config
 // (the API sends no top-level type/enabled/domain/issuer_url).
 type Provider struct {

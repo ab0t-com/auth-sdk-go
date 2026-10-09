@@ -4,7 +4,7 @@ package main
 //
 // WHY THIS FILE EXISTS
 //
-// A user-journey review of this CLI (pmm/02) found that 20 of 28 customer
+// A user-journey review of this CLI found that 20 of 28 customer
 // journeys stalled on the same class of defect: the tool KNEW what the customer
 // would want next and did not say it. `can` returned DENIED and never mentioned
 // `why`. `login` succeeded and never mentioned `whoami`. `doctor` — the single
@@ -53,7 +53,7 @@ type helpDoc struct {
 	Failures [][2]string
 	// Next lists what people typically run after this verb. This is the
 	// progressive-disclosure payload; it comes straight from the `Next journey:`
-	// field of the journeys in pmm/02.
+	// field of the journeys.
 	Next []string
 	// SeeAlso points at verbs that answer an adjacent question.
 	SeeAlso []string

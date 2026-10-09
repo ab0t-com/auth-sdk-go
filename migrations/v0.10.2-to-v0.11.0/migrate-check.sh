@@ -2,7 +2,7 @@
 # migrate-check.sh — find every call site your codebase must change for auth-sdk-go v0.11.0.
 #
 # Read-only. Reports, per finding, the file:line and the exact fix for the v0.10.2 -> v0.11.0
-# breaking changes (CLASS-34 contract-fidelity). Exits non-zero if anything HIGH-confidence
+# breaking changes (contract-fidelity). Exits non-zero if anything HIGH-confidence
 # needs changing (so you can gate CI on it). It NEVER edits your code.
 #
 # PRECISION (why this does not false-red):

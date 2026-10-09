@@ -24,6 +24,10 @@ type APIError struct {
 	// Code is a machine-readable error code parsed from the body, if any
 	// (e.g. "invalid_grant", "token_expired"). Empty when not present.
 	Code string
+	// SubError is the "suberror" member of an OAuth error body, if any — a
+	// refinement of Code (e.g. Code "invalid_target" with SubError
+	// "consent_required"). Empty when not present.
+	SubError string
 	// Message is a human-readable message parsed from the body, if any.
 	Message string
 	// RequestID echoes any X-Request-ID / request correlation id returned.
@@ -75,7 +79,27 @@ func parseAPIError(status int, method, endpoint, requestID, body string) *APIErr
 		Body:       body,
 	}
 	e.Code, e.Message = extractCodeMessage(body)
+	e.SubError = extractSubError(body)
 	return e
+}
+
+// extractSubError reads a string "suberror" member from a JSON error body.
+func extractSubError(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" || body[0] != '{' {
+		return ""
+	}
+	var env struct {
+		SubError json.RawMessage `json:"suberror"`
+	}
+	if json.Unmarshal([]byte(body), &env) != nil || len(env.SubError) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(env.SubError, &s) != nil {
+		return ""
+	}
+	return s
 }
 
 func extractCodeMessage(body string) (code, msg string) {
@@ -121,21 +145,38 @@ func extractCodeMessage(body string) (code, msg string) {
 		msg = env.Message
 	}
 
-	// FastAPI style: {"detail": "..."} or {"detail": [{"msg": ...}]}.
-	if msg == "" && len(env.Detail) > 0 {
+	// FastAPI style: {"detail": "..."}, {"detail": [{"msg": ...}]}, or the auth service's
+	// stable error-code shape {"detail": {"code": "...", "message": "..."}} (e.g.
+	// org_last_owner, org_move_crosses_service, delegation_delegator_not_member,
+	// password_policy_violation) — the code is surfaced so callers can branch on it.
+	if len(env.Detail) > 0 && (msg == "" || code == "") {
 		var ds string
-		if json.Unmarshal(env.Detail, &ds) == nil {
-			msg = ds
-		} else {
-			var items []struct {
-				Msg  string `json:"msg"`
-				Type string `json:"type"`
+		var obj struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		}
+		var items []struct {
+			Msg  string `json:"msg"`
+			Type string `json:"type"`
+		}
+		switch {
+		case json.Unmarshal(env.Detail, &ds) == nil:
+			if msg == "" {
+				msg = ds
 			}
-			if json.Unmarshal(env.Detail, &items) == nil && len(items) > 0 {
+		case json.Unmarshal(env.Detail, &items) == nil && len(items) > 0:
+			if msg == "" {
 				msg = items[0].Msg
-				if code == "" {
-					code = items[0].Type
-				}
+			}
+			if code == "" {
+				code = items[0].Type
+			}
+		case json.Unmarshal(env.Detail, &obj) == nil:
+			if code == "" {
+				code = obj.Code
+			}
+			if msg == "" {
+				msg = obj.Message
 			}
 		}
 	}

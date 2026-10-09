@@ -51,8 +51,8 @@ type TokenSet struct {
 	Scope    string `json:"scope,omitempty"`
 }
 
-// RegisterRequest is the body for POST /auth/register. Fields mirror the goauth
-// registerRequest handler struct (authextra/register.go:36-42).
+// RegisterRequest is the body for POST /auth/register. Fields mirror the server's
+// registerRequest handler struct.
 type RegisterRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -65,7 +65,7 @@ type RegisterRequest struct {
 	// made the entire invite-join flow unreachable from the SDK.
 	InvitationCode string `json:"invitation_code,omitempty"`
 	// NOTE: the register endpoint does NOT accept provider_type (it hardcodes
-	// "internal" server-side, register.go:203). The pre-v0.11.0 ProviderType field
+	// "internal" server-side). The pre-v0.11.0 ProviderType field
 	// was phantom (silently ignored) and has been removed.
 }
 
@@ -156,7 +156,7 @@ type Resource struct {
 func (r Resource) IsZero() bool { return r.Type == "" && r.ID == "" }
 
 // TokenValidationRequest is the body for POST /auth/validate-token. Fields mirror
-// the goauth TokenValidationRequest handler struct (internal/models/auth.go:56-62):
+// the server's TokenValidationRequest struct:
 // {token, required_permissions, expected_audience, include_permissions}.
 //
 // SECURITY: this endpoint has NO resource scoping — it answers only "is this token
@@ -355,8 +355,8 @@ type Organization struct {
 	ServiceAudience string `json:"service_audience,omitempty"`
 	// AudienceStatus makes a NULL service audience observable without minting a
 	// token: "bound" when a real audience resolves, "local_fallback" when the org
-	// would mint aud=["LOCAL:<org_id>"]. Always present on the wire (goauth
-	// orgResponse.audience_status, orgs/orgs.go:457); previously un-modelled.
+	// would mint aud=["LOCAL:<org_id>"]. Always present on the wire (the server's
+	// orgResponse.audience_status); previously un-modelled.
 	AudienceStatus string         `json:"audience_status,omitempty"`
 	BillingType    string         `json:"billing_type,omitempty"`
 	Status         string         `json:"status,omitempty"`

@@ -108,8 +108,7 @@ func (c *Client) ChangeMyPassword(ctx context.Context, token string, req ChangeP
 // ---- Admin user management (users.read / users.write) ----
 
 // AdminUserUpdate is the body for the ADMIN PUT /users/{user_id}. It is UserUpdate
-// plus Status — which the admin endpoint accepts (goauth updateUserRequest,
-// usersadmin/update.go:27-34; validated to active/inactive/suspended/pending) but
+// plus Status — which the admin endpoint accepts but
 // the self endpoint (/users/me) does not. Kept distinct from UserUpdate so a
 // self-service caller can't send a status the /users/me handler would ignore.
 type AdminUserUpdate struct {

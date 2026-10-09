@@ -419,7 +419,7 @@ func lookup(name string) *command {
 // usage is the top-level page. It leads with WHAT THIS IS FOR and the ~10 things
 // people actually do — not an alphabetical verb list.
 //
-// The journey review (pmm/02, UJ-01) found the old page answered "what can it do"
+// The journey review found the old page answered "what can it do"
 // and never "what is this for", so an evaluator who did not already know what an
 // authorization service was learned nothing and left. Ordering is the teaching: a
 // list sorted by name tells a first-time reader nothing about where to start.

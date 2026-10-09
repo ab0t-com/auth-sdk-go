@@ -182,3 +182,74 @@ func TestWithRealClientAgainstFakeServer(t *testing.T) {
 		t.Errorf("agent key did not reach /auth/validate-api-key; requests were %v", srv.Requests())
 	}
 }
+
+// Consumers on the mesh are told to send their key in X-API-Key. A gate that read
+// only Authorization saw no credential from a consumer that followed the docs.
+func TestGate_AcceptsXAPIKey(t *testing.T) {
+	f := authclienttest.Allow()
+	g := &authmw.Gate{V: f, A: f}
+	h := g.Authenticate(g.Require("world.write", "world", ok))
+
+	req := httptest.NewRequest(http.MethodPost, "/x", nil)
+	req.Header.Set("X-API-Key", "ab0t_sk_consumer")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("X-API-Key only: got %d, want 200", rec.Code)
+	}
+	var sawValidate, sawAuthorize bool
+	for _, c := range f.Calls() {
+		if c.Token != "ab0t_sk_consumer" {
+			t.Errorf("%s got credential %q, want the X-API-Key value", c.Method, c.Token)
+		}
+		sawValidate = sawValidate || c.Method == "ValidateToken"
+		sawAuthorize = sawAuthorize || c.Method == "Authorize"
+	}
+	if !sawValidate || !sawAuthorize {
+		t.Errorf("calls = %+v, want ValidateToken and Authorize", f.Calls())
+	}
+}
+
+// Authorization keeps priority: existing callers that send it see no change.
+func TestGate_AuthorizationWinsOverXAPIKey(t *testing.T) {
+	f := authclienttest.Allow()
+	g := &authmw.Gate{V: f, A: f}
+	req := httptest.NewRequest(http.MethodPost, "/x", nil)
+	req.Header.Set("Authorization", "Bearer user-jwt")
+	req.Header.Set("X-API-Key", "ab0t_sk_consumer")
+	rec := httptest.NewRecorder()
+	g.Require("world.write", "world", ok).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d", rec.Code)
+	}
+	if calls := f.Calls(); len(calls) != 1 || calls[0].Token != "user-jwt" {
+		t.Errorf("calls = %+v, want the Authorization credential", calls)
+	}
+	if got := authmw.Credential(req); got != "user-jwt" {
+		t.Errorf("Credential = %q", got)
+	}
+	if got := authmw.Bearer(req); got != "user-jwt" {
+		t.Errorf("Bearer = %q (must be unchanged)", got)
+	}
+}
+
+func TestGate_XAPIKeyDeniedAndMissing(t *testing.T) {
+	g := &authmw.Gate{V: authclienttest.Deny(), A: authclienttest.Deny()}
+	req := httptest.NewRequest(http.MethodPost, "/x", nil)
+	req.Header.Set("X-API-Key", "ab0t_sk_consumer")
+	rec := httptest.NewRecorder()
+	g.Require("world.write", "world", ok).ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("denied key: got %d, want 403", rec.Code)
+	}
+	down := &authmw.Gate{V: authclienttest.Unavailable(), A: authclienttest.Unavailable()}
+	rec = httptest.NewRecorder()
+	down.Require("world.write", "world", ok).ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("auth down with X-API-Key: got %d, want 503", rec.Code)
+	}
+	// Bearer stays Authorization-only.
+	if authmw.Bearer(req) != "" {
+		t.Error("Bearer must not read X-API-Key")
+	}
+}

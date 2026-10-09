@@ -175,7 +175,7 @@ func TestValidateTokenAndAuthorize(t *testing.T) {
 // TestAuthorizeForwardsResourceAndPermission proves the resource-scoped contract:
 // Authorize resolves the subject, then forwards the permission AND resource to the
 // resource-aware PDP (/permissions/check), rather than relying on validate-token to
-// honor the resource (which not every backend does — see ticket 20260827).
+// honor the resource (which not every backend does).
 func TestAuthorizeForwardsResourceAndPermission(t *testing.T) {
 	var sawCheck bool
 	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -386,6 +386,21 @@ func TestErrorClassification(t *testing.T) {
 			wantCode:     "value_error.missing",
 			wantMsg:      "field required",
 			isValidation: true,
+		},
+		{
+			name:        "403 detail object (stable error code)",
+			status:      403,
+			body:        `{"detail":{"code":"delegation_delegator_not_member","message":"The person you are acting for is no longer a member of this organization."}}`,
+			wantCode:    "delegation_delegator_not_member",
+			wantMsg:     "The person you are acting for is no longer a member of this organization.",
+			isForbidden: true,
+		},
+		{
+			name:     "409 detail object (stable error code)",
+			status:   409,
+			body:     `{"detail":{"code":"org_last_owner","message":"Transfer ownership first: this organization must keep at least one owner."}}`,
+			wantCode: "org_last_owner",
+			wantMsg:  "Transfer ownership first: this organization must keep at least one owner.",
 		},
 		{
 			name:          "429 rate limited",

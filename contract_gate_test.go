@@ -9,10 +9,10 @@ import (
 	"testing"
 )
 
-// contract_gate_test.go — the CLASS-34 bidirectional contract gate.
+// contract_gate_test.go — the bidirectional contract gate.
 //
 // It pins the auth-service wire contract in scripts/api_contract.json (top-level
-// request/response field names per endpoint, derived from the goauth handler
+// request/response field names per endpoint, derived from the server's handler
 // structs) and REFLECTS the paired SDK request/response Go structs, failing the
 // build (this runs under `go test`, which CI gates on) on any of the four drift
 // categories:
@@ -22,10 +22,10 @@ import (
 //	3 OVER-EXPOSURE       — SDK sends/reads a field the API set lacks (footgun), unless allow-listed.
 //	4 ENVELOPE-MISMATCH   — the SDK binding's array/object kind must equal the API envelope.
 //
-// It is deterministic (no network) and reproducible. Every one of the CLASS-34
-// findings this ticket fixed is a fixture here (or, for the two custom-MarshalJSON
+// It is deterministic (no network) and reproducible. Every one of the contract-drift
+// findings the contract work fixed is a fixture here (or, for the two custom-MarshalJSON
 // request bodies, is delegated to its named wire-shape test — see the snapshot
-// notes). HOUSE STANDARD: adopt this harness in the other Go SDKs.
+// notes).
 
 // contractEntry is one endpoint's pinned API truth (see scripts/api_contract.json).
 type contractEntry struct {
@@ -165,7 +165,7 @@ func sortedExtra(have map[string]bool, want []string, allow map[string]string) [
 	return x
 }
 
-// TestContractGate is the CLASS-34 gate. It fails on any non-allow-listed drift.
+// TestContractGate is the gate. It fails on any non-allow-listed drift.
 func TestContractGate(t *testing.T) {
 	contract := loadContract(t)
 

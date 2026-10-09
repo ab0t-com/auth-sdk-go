@@ -37,7 +37,7 @@ type OrgLoginRequest struct {
 }
 
 // OrgRegisterRequest is the body for POST /organizations/{slug}/auth/register.
-// Fields mirror the goauth orgRegisterRequest handler struct (orgauth/login.go:37-43).
+// Fields mirror the server's orgRegisterRequest struct.
 type OrgRegisterRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -175,7 +175,7 @@ func (c *Client) OrgSSOCallback(ctx context.Context, slug string, form url.Value
 // merged config as those sections at the TOP LEVEL (no {config} wrapper). PUT is
 // a partial deep-merge and 400-REJECTS any unknown top-level key, so a PUT body
 // MUST be nested by section (a flat {logo_url:...} body is rejected wholesale).
-// Sections/fields mirror goauth loginConfigDefaults (orgs/loginconfig.go:163).
+// Sections/fields Mirrors the server's loginConfigDefaults.
 // Fields are pointers so a partial PUT can distinguish "unset" from a zero value.
 
 // LoginConfigBranding is the "branding" section.
@@ -264,7 +264,7 @@ type PublicLoginConfig struct {
 }
 
 // OrgClientSafe is the safe (non-secret) view of an OAuth client in an org. Fields
-// mirror the goauth orgClientSafe handler struct (orgs/clients.go:20-32).
+// mirror the server's orgClientSafe struct.
 type OrgClientSafe struct {
 	ClientID      string   `json:"client_id,omitempty"`
 	ClientName    string   `json:"client_name,omitempty"`

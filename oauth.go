@@ -52,7 +52,7 @@ type OAuthProviderAuthorizeResponse struct {
 }
 
 // ClientRegistration is the body for RFC 7591 dynamic client registration. The
-// server reads all of these (goauth internal/oauth/dcr.go:104-115), including the
+// server reads all of these, including the
 // client_uri/tos_uri/software_id/software_version metadata that the RESPONSE
 // already surfaced — previously readable but un-settable (read-write asymmetry).
 type ClientRegistration struct {
@@ -247,11 +247,20 @@ const (
 type ExchangeOption func(url.Values)
 
 // WithScope requests a specific (space-delimited) scope for the exchanged token.
-// The server narrows it fail-closed against the delegation-grant ceiling — it is
-// never widened, and an empty resulting scope is denied. Omit to accept the
-// grant's default scope. (See FINDINGS Q5 / permission_service.py:830-848.)
+// It is bounded by what the subject may delegate — never widened. A scope the
+// server will not grant is refused with 400 invalid_scope. Prefer always naming
+// the scope you need: whether an omitted scope falls back to a default depends
+// on the server and the grant, and the target design refuses an omitted scope
+// when there is no default.
 func WithScope(scope string) ExchangeOption {
 	return func(v url.Values) { v.Set("scope", scope) }
+}
+
+// WithResource sets the RFC 8707 resource parameter — the absolute URI (or, on
+// services that still use them, the registered audience identifier) of the one
+// resource the exchanged token is for. Unknown or malformed → 400 invalid_target.
+func WithResource(resource string) ExchangeOption {
+	return func(v url.Values) { v.Set("resource", resource) }
 }
 
 // WithActorToken supplies the RFC 8693 actor_token (the party acting on the
@@ -290,7 +299,8 @@ type ExchangeResponse struct {
 // POST /auth/oauth/token: grant_type is the token-exchange URN, subject_token is
 // the token being exchanged (typically the end user's access token), and
 // audience names the mesh service the exchanged token is minted for — which must
-// be that org's registered service_audience or the server returns invalid_target.
+// be a service audience the server recognises for the acting org, or the server
+// returns invalid_target.
 // subject_token_type and requested_token_type both default to access_token;
 // override with the With*TokenType options. Optional: WithScope, WithActorToken.
 //
@@ -310,12 +320,16 @@ func TokenExchangeForm(subjectToken, audience string, opts ...ExchangeOption) ur
 	return form
 }
 
-// ExchangeToken performs an RFC 8693 token exchange (on-behalf-of): it exchanges
+// ExchangeToken performs a raw RFC 8693 token exchange: it exchanges
 // subjectToken for a token minted for audience, using the SAME token endpoint,
 // transport, and OAuth error-envelope mapping as OAuthToken, and decodes the
-// §2.2.1 body (including issued_token_type) into an ExchangeResponse. It requires
-// two provisioning prerequisites — audience registered as the org's
-// service_audience and a read-only may_act delegation grant; see
+// §2.2.1 body (including issued_token_type) into an ExchangeResponse.
+//
+// Most apps should call TokenFor instead, which picks the pattern, authenticates
+// the client, caches, and classifies errors. With ExchangeToken you supply
+// everything yourself: on today's services an exchange for a person needs your
+// app's actor token (WithActorToken), audience = the target's registered
+// service audience, and a delegation grant from the person; see
 // docs/OBO_TOKEN_EXCHANGE.md. POST /auth/oauth/token (form-encoded).
 func (c *Client) ExchangeToken(ctx context.Context, subjectToken, audience string, opts ...ExchangeOption) (*ExchangeResponse, error) {
 	var out ExchangeResponse

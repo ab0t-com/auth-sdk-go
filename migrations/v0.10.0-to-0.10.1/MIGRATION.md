@@ -5,7 +5,7 @@ One small breaking change — the delegation-grant request (**G-04**). If you do
 422). Run the checker: `./migrate-check.sh .`
 
 ## The change — `DelegationGrant` (`apikeys.go`)
-The server's `POST /delegation/grant` requires `scope` (and `expires_in_hours` on the goauth backend);
+The server's `POST /delegation/grant` requires `scope` (and `expires_in_hours` on some server builds);
 it has no `permissions`/`target_user_id`/`expires_at`/`reason`. The grant's target is the
 **authenticated caller** (you grant an actor the right to act as *you*), so it isn't in the body.
 

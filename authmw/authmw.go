@@ -69,13 +69,26 @@ func Identity(ctx context.Context) *auth.Actor {
 }
 
 // Bearer extracts the credential from an Authorization header. It may be a user
-// JWT or an agent/service key (ab0t_sk_…) — the service resolves either.
+// JWT or an agent/service key (ab0t_sk_…) — the service resolves either. The
+// gate itself reads Credential, which also accepts X-API-Key.
 func Bearer(r *http.Request) string {
 	h := r.Header.Get("Authorization")
 	if h == "" {
 		return ""
 	}
 	return strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
+}
+
+// Credential returns the caller's credential: the Authorization header (as
+// Bearer reads it) when present, else the X-API-Key header — the header mesh
+// consumers are told to send their service key in. Authorization wins when both
+// are sent, so callers that already use it see no change. The value is handed to
+// the Validator / Authorizer, which resolve a JWT or an ab0t_sk_ key alike.
+func Credential(r *http.Request) string {
+	if tok := Bearer(r); tok != "" {
+		return tok
+	}
+	return strings.TrimSpace(r.Header.Get("X-API-Key"))
 }
 
 func (g *Gate) resourceID(r *http.Request) string {
@@ -92,7 +105,8 @@ func (g *Gate) deny(w http.ResponseWriter, r *http.Request, action string, statu
 	http.Error(w, msg, status)
 }
 
-// Authenticate attaches an identity when a credential is present.
+// Authenticate attaches an identity when a credential is present (Authorization,
+// else X-API-Key — see Credential).
 //
 // A MISSING credential is not an error here — the request continues anonymously
 // and the route decides what that means, so read-only and public routes keep
@@ -100,7 +114,7 @@ func (g *Gate) deny(w http.ResponseWriter, r *http.Request, action string, statu
 // not check out, which is worth saying rather than silently ignoring.
 func (g *Gate) Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tok := Bearer(r)
+		tok := Credential(r)
 		if tok == "" || g.V == nil {
 			next.ServeHTTP(w, r)
 			return
@@ -123,14 +137,15 @@ func (g *Gate) Authenticate(next http.Handler) http.Handler {
 	})
 }
 
-// Require gates a handler on (action, resourceType):
+// Require gates a handler on (action, resourceType). The credential is read with
+// Credential (Authorization, else X-API-Key):
 //
 //	401 no credential · 403 denied · 503 auth service unreachable · else the handler
 //
 // The 503 is the important one. See the package doc.
 func (g *Gate) Require(action, resourceType string, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		tok := Bearer(r)
+		tok := Credential(r)
 		if tok == "" {
 			g.deny(w, r, action, http.StatusUnauthorized, "auth required", nil)
 			return

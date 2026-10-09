@@ -13,12 +13,14 @@
 //	gate := myapp.Gate{V: authclienttest.Deny(), A: authclienttest.Unavailable()}
 //	// assert the handler answers 503, not 200
 //
-// Two doubles, for two different jobs:
+// Three doubles, for three different jobs:
 //
 //   - Fake — implements the interfaces directly. Fast, no network. Use it to test
 //     YOUR code's reaction to allow / deny / unavailable.
 //   - Server — an httptest-backed fake auth service. Use it to test the REAL
 //     client end to end, including its retry, decoding and error handling.
+//   - TokenEndpoint — a scripted fake token endpoint. Use it to test code that
+//     calls TokenFor: what was sent, and how each server answer is surfaced.
 //
 // This is a separate package on purpose: nothing here is imported by the root
 // package, so it cannot affect the dependency surface or the binary of anyone who
@@ -31,6 +33,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -239,4 +243,155 @@ func (s *Server) Requests() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.reqs...)
+}
+
+// ---- A fake TOKEN ENDPOINT, for testing code that calls TokenFor ----
+
+// TokenRequest records one call to the fake token endpoint.
+type TokenRequest struct {
+	// GrantType is the grant_type form value.
+	GrantType string
+	// Form is the full form body.
+	Form url.Values
+	// ClientID / ClientSecret are what arrived in HTTP Basic (empty when the
+	// request carried no Basic header).
+	ClientID     string
+	ClientSecret string
+	// APIKey is any X-API-Key header that arrived — a token-endpoint call should
+	// carry none, and a test can assert that.
+	APIKey string
+}
+
+// TokenAnswer is one scripted reply: an HTTP status and a JSON body.
+type TokenAnswer struct {
+	Status int
+	Body   any
+}
+
+// TokenOK is a 200 token response (no refresh_token, like the real endpoint for
+// client credentials and token exchange).
+func TokenOK(accessToken string, expiresIn int, scope string) TokenAnswer {
+	body := map[string]any{"access_token": accessToken, "token_type": "Bearer", "expires_in": expiresIn}
+	if scope != "" {
+		body["scope"] = scope
+	}
+	return TokenAnswer{Status: http.StatusOK, Body: body}
+}
+
+// TokenError is an RFC 6749 §5.2 error reply. suberror may be empty.
+func TokenError(status int, code, suberror string) TokenAnswer {
+	body := map[string]any{"error": code, "error_description": "scripted"}
+	if suberror != "" {
+		body["suberror"] = suberror
+	}
+	return TokenAnswer{Status: status, Body: body}
+}
+
+// TokenEndpoint is an httptest-backed fake of the auth service's token endpoint
+// (POST /auth/oauth/token) and its RFC 8414 metadata, so consumers can test the
+// real TokenFor — pattern choice, client authentication, caching and error
+// mapping — with no live service.
+//
+//	te := authclienttest.NewTokenEndpoint()
+//	defer te.Close()
+//	te.Script(authclienttest.TokenError(400, "invalid_target", "consent_required"))
+//	c := auth.New(te.URL(), auth.WithClientCredentials("app", "secret"))
+//	_, err := c.TokenFor(ctx, "https://b.example", "b.read", auth.StaticSession(tok))
+//	var consent *auth.ConsentRequired // errors.As(err, &consent) == true
+//
+// Scripted answers are consumed in order; when none are queued, the endpoint
+// issues a fresh token ("fake-at-<n>", expires_in 900, scope echoed). SetHandler
+// replaces both with a function for full control. Safe for concurrent use.
+type TokenEndpoint struct {
+	srv *httptest.Server
+
+	mu      sync.Mutex
+	queue   []TokenAnswer
+	handler func(TokenRequest) TokenAnswer
+	reqs    []TokenRequest
+	issued  int
+}
+
+// NewTokenEndpoint starts the fake. Call Close when done.
+func NewTokenEndpoint() *TokenEndpoint {
+	t := &TokenEndpoint{}
+	t.srv = httptest.NewServer(http.HandlerFunc(t.handle))
+	return t
+}
+
+// URL is the base URL to hand to auth.New.
+func (t *TokenEndpoint) URL() string { return t.srv.URL }
+
+// Close shuts the fake down.
+func (t *TokenEndpoint) Close() { t.srv.Close() }
+
+// Script queues answers, consumed one per token-endpoint call.
+func (t *TokenEndpoint) Script(answers ...TokenAnswer) {
+	t.mu.Lock()
+	t.queue = append(t.queue, answers...)
+	t.mu.Unlock()
+}
+
+// SetHandler answers every token-endpoint call with fn (nil restores scripting).
+func (t *TokenEndpoint) SetHandler(fn func(TokenRequest) TokenAnswer) {
+	t.mu.Lock()
+	t.handler = fn
+	t.mu.Unlock()
+}
+
+// Requests returns every token-endpoint call received, in order.
+func (t *TokenEndpoint) Requests() []TokenRequest {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]TokenRequest(nil), t.reqs...)
+}
+
+func (t *TokenEndpoint) handle(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method == http.MethodGet && r.URL.Path == "/.well-known/oauth-authorization-server" {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer":                           t.srv.URL,
+			"authorization_endpoint":           t.srv.URL + "/auth/authorize",
+			"token_endpoint":                   t.srv.URL + "/auth/oauth/token",
+			"code_challenge_methods_supported": []string{"S256"},
+		})
+		return
+	}
+	if r.Method != http.MethodPost || r.URL.Path != "/auth/oauth/token" {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"detail":"not found"}`))
+		return
+	}
+	_ = r.ParseForm()
+	req := TokenRequest{GrantType: r.PostForm.Get("grant_type"), Form: r.PostForm, APIKey: r.Header.Get("X-API-Key")}
+	req.ClientID, req.ClientSecret, _ = r.BasicAuth()
+
+	t.mu.Lock()
+	t.reqs = append(t.reqs, req)
+	var ans TokenAnswer
+	switch {
+	case t.handler != nil:
+		h := t.handler
+		t.mu.Unlock()
+		ans = h(req)
+		t.mu.Lock()
+	case len(t.queue) > 0:
+		ans = t.queue[0]
+		t.queue = t.queue[1:]
+	default:
+		t.issued++
+		ans = TokenOK("fake-at-"+strconv.Itoa(t.issued), 900, req.Form.Get("scope"))
+	}
+	t.mu.Unlock()
+
+	if ans.Status == 0 {
+		ans.Status = http.StatusOK
+	}
+	if m, ok := ans.Body.(map[string]any); ok && ans.Status == http.StatusOK && req.GrantType == auth.GrantTypeTokenExchange {
+		if _, set := m["issued_token_type"]; !set {
+			m["issued_token_type"] = auth.TokenTypeAccessToken
+		}
+	}
+	w.WriteHeader(ans.Status)
+	_ = json.NewEncoder(w).Encode(ans.Body)
 }

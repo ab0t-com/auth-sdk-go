@@ -8,8 +8,7 @@ import (
 	"testing"
 )
 
-// Tests for the 2026-08-27 contract-drift fixes (ticket
-// tickets/20260827_sdk_contract_drift). Each maps to a finding id.
+// Tests for the 2026-08-27 contract-drift fixes. Each maps to a finding id.
 
 // F-01: a resource-scoped Authorize must ask the resource-aware PDP and must NOT
 // be answerable by a backend whose validate-token ignores the resource. This
@@ -292,6 +291,6 @@ func TestDelegationGrant_MarshalsScope(t *testing.T) {
 		}
 	}
 	if !strings.Contains(s, `"expires_in_hours":24`) {
-		t.Fatalf("G-04: expires_in_hours (goauth-required) missing; got %s", s)
+		t.Fatalf("G-04: expires_in_hours (server-required) missing; got %s", s)
 	}
 }

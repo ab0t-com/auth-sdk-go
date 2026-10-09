@@ -20,7 +20,7 @@ Supersedes the name-based `field-coverage.py`. Three checks the earlier gates co
     python3 scripts/field-drift.py --url ... [--alt-url ...]
 
 Dependency-free (stdlib only), like the SDK and `spec-coverage.py`. Exit 0 (a scoreboard) unless
---strict. Derived from tickets/20260827_sdk_contract_drift/{opaudit,typeaudit}.py.
+--strict.
 """
 from __future__ import annotations
 import argparse, glob, json, os, re, sys, urllib.request
@@ -35,9 +35,9 @@ ALT_URL = os.environ.get("AUTH_ALT_SPEC_URL", "")
 # whole method; ("*","field") allows a field everywhere. Every entry MUST cite its tracking finding.
 #
 # EMPTY as of 2026-08-28: the F-04/F-09/F-12 fixes plus the F-10 per-domain response-strip pass
-# (ticket 20260827_sdk_contract_drift) closed every gate-worthy gap, so there is
+# (the contract-drift work) closed every gate-worthy gap, so there is
 # nothing to allow. Keeping it empty means any NEW required-field or type regression fails --strict
-# immediately. Add an entry ONLY for a deliberately-deferred gap, with its ticket reference, e.g.:
+# immediately. Add an entry ONLY for a deliberately-deferred gap, with a reference to the tracking issue, e.g.:
 #     KNOWN_FIELD_GAPS.add(("SomeMethod", "*"))  # F-XX, tracked in children/NN_domain.md
 KNOWN_FIELD_GAPS: set[tuple[str, str]] = set()
 

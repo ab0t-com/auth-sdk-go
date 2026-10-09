@@ -12,7 +12,7 @@ import (
 // This file implements the Zanzibar ReBAC surface of the auth service
 // (/zanzibar/stores/{store_id}/...): relationship tuples, check/expand/list,
 // namespaces, hierarchy, team membership, visualization, migration, watch, plus
-// the public /auth/check-permission endpoint.
+// the /auth/check-permission endpoint (authenticated since auth service 2026-09).
 //
 // CONTRACT (source of truth: the live auth service OpenAPI 3.1 at
 // https://auth.service.ab0t.com/openapi.json, verified 2026-07-12): the Zanzibar
@@ -352,10 +352,16 @@ type WatchStatusResponse struct {
 
 // ---- Public RBAC check (auth router) ----
 
-// CheckPermissionPublic performs a permission check via the public
-// POST /auth/check-permission endpoint (no caller auth required). This is the
-// account/RBAC surface: it takes PermissionCheckRequest{user_id,...}, NOT a
-// Zanzibar tuple.
+// CheckPermissionPublic performs a permission check via
+// POST /auth/check-permission. This is the account/RBAC surface: it takes
+// PermissionCheckRequest{user_id,...}, NOT a Zanzibar tuple.
+//
+// Credential REQUIRED (2026-09-26 — the route was public and has
+// been closed as a permission / user-existence oracle): the client's configured
+// API key is sent. Without one the server answers 401. A key asking about its
+// own user is answered from the KEY's scope (by design); asking about another user
+// needs users.read over an org that user belongs to (inside the key's org
+// reach), else 403. The method name is kept for compatibility.
 func (c *Client) CheckPermissionPublic(ctx context.Context, req PermissionCheckRequest) (*PermissionDecision, error) {
 	var out PermissionDecision
 	if err := c.doJSON(ctx, "POST", "/auth/check-permission", req, &out, ""); err != nil {

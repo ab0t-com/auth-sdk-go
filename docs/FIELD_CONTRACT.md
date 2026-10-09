@@ -5,7 +5,6 @@ client (not using `auth-sdk-go`). If you hand-rolled a client because the SDK wa
 to conform to — no Go source required.
 
 **Verified** against the live auth service (`https://auth.service.ab0t.com`) on **2026-08-28**.
-Fuller background: `tickets/20260827_sdk_contract_drift/` and `tickets/20260828_client_setup_feedback/`.
 
 > **Read the "Traps" section at the bottom first if you are debugging** — every item there is a bug a
 > real client (including our own SDK) shipped.
@@ -101,7 +100,7 @@ is minted onto the token **only** via `/auth/delegate` and the RFC 8693 token-ex
 on plain `/auth/refresh`** (refresh re-mints a plain access token and drops actor context).
 
 **So for OBO audit attribution: obtain the OBO token via `/auth/delegate` or token-exchange, not by
-refreshing.** (Source: server investigation, `tickets/20260828_client_setup_feedback/` → ANSWERS G-01.)
+refreshing.**
 
 ---
 

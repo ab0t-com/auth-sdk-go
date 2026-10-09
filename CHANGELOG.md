@@ -4,11 +4,74 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.2] — 2026-10-09 — `TokenFor`: one call for a token to another mesh service
+
+> **Additive, backwards-compatible.** No existing signature or behaviour changes, except that
+> `authmw` now also reads `X-API-Key` when no `Authorization` header is present (a request that was
+> answered `401 auth required` because its key was in `X-API-Key` is now validated).
+
+### Added — `TokenFor`
+
+- `(*Client).TokenFor(ctx, resource, scope, session) (*Token, error)`: `session == nil` → client
+  credentials (RFC 6749 §4.4) with `resource` (RFC 8707) and `scope`; `session != nil` → RFC 8693 token
+  exchange with the person's token as `subject_token`, client authentication, exactly one `resource`,
+  and no `actor_token`. Client credentials are sent as HTTP Basic; a `WithAPIKey` key is **not** sent
+  on these token-endpoint calls.
+- `WithClientCredentials(clientID, secret)`; `Session` interface with `StaticSession` / `SessionFunc`
+  adapters; `Token` type.
+- `WithLegacyActorExchange(audience)` — a bridge for auth services that do not yet accept the
+  client-authenticated exchange: TokenFor mints the app's own client-credentials token (cached) and
+  exchanges the person's token with it as `actor_token` and the given `audience`. Delete the option when
+  the service supports the target exchange.
+- Caching: in memory until 30 s before expiry, never past the person's own token expiry, keyed by
+  pattern + resource + scope set (+ a hash of the person's token), bounded LRU (`WithTokenCacheSize`,
+  default 1024, negative disables), one request per key under concurrency, errors never cached;
+  `TokenCacheStats()`.
+- Typed errors: `ErrReauthenticate` (400 `invalid_request` or `invalid_grant` on the person pattern —
+  services are moving from the second to the first; both are handled), `*ConsentRequired`
+  (400 `invalid_target` + `suberror: consent_required`, with `AuthorizationURL(redirectURI, state,
+  codeChallenge)` built from the RFC 8414 metadata: PKCE S256, `resource`, `scope`, `prompt=consent`),
+  `ErrNoConnection` (`invalid_target`), `ErrScopeNotAllowed` (`invalid_scope`), `ErrClientAuth`
+  (`invalid_client`), `ErrClientNotEnabled` (`unauthorized_client`), `ErrUnavailable` (5xx / 429 /
+  network / cancelled context), `ErrClientCredentialsRequired`. The `*APIError` stays reachable with
+  `errors.As`.
+- `NewPKCE()` — RFC 7636 verifier + S256 challenge.
+- `APIError.SubError` — the OAuth `suberror` member.
+- `WithResource(uri)` exchange option (RFC 8707 `resource`).
+- `authclienttest.TokenEndpoint` — a scripted fake token endpoint (+ RFC 8414 metadata) with
+  `TokenOK` / `TokenError` answers and recorded requests, so consumers can test code that calls
+  `TokenFor` without a live service.
+
+### Changed — `authmw` reads `X-API-Key`
+
+- New `authmw.Credential(r)`: the `Authorization` credential when present, else `X-API-Key` — the header
+  mesh consumers are told to send their service key in. `Gate.Authenticate` and `Gate.Require` use it.
+  `Authorization` still wins when both are sent; `authmw.Bearer` is unchanged.
+
+### Fixed — docs and example
+
+- `examples/obo` called `ExchangeToken` without an actor token, which today's services answer
+  `400 invalid_request`; it now uses `TokenFor` with the bridge option and branches on the typed errors.
+- `docs/OBO_TOKEN_EXCHANGE.md` rewritten around `TokenFor`: error names as on the wire
+  (`invalid_request`/`invalid_grant`, `invalid_target`, `invalid_scope`, `invalid_client`,
+  `unauthorized_client`) instead of server-internal reasons; the actor token is required on today's raw
+  exchange; the audience is one the acting org recognises (its service audience or `SELF:<org id>`);
+  `authsetup obo-enable` creates the grant and checks the audience (it does not register one); scopes are
+  dotted permissions; `client_id` names the acting app where the service emits it; internal source-line
+  references removed. `WithScope` / `ExchangeToken` doc comments corrected to match.
+
 ## [0.11.1] — 2026-09-11 — OBO / RFC 8693 token-exchange helper
 
 > Purely **additive, backwards-compatible**: existing `OAuthToken` / `TokenResponse`
-> behavior is unchanged (guarded by a test). Prepared by ticket
-> `auth/output/tickets/20260911_obo_token_exchange_productization` (Phase 1 + 2).
+> behavior is unchanged (guarded by a test).
+
+### Fixed — `APIError.Code` / `Message` for `{"detail": {"code", "message"}}`
+
+- The auth service now answers several refusals with a stable code in an object `detail`
+  (`org_last_owner` 409, `org_move_crosses_service` 409, `delegation_delegator_not_member` 403, and the
+  existing `password_policy_violation`). `extractCodeMessage` read `detail` only as a string or a list, so
+  `APIError.Code` and `Message` were empty for these and callers could not branch on the code. They are now
+  populated (an explicit top-level `code`/`message` or OAuth `error` still wins).
 
 ### Added — on-behalf-of (OBO) token exchange
 
@@ -26,16 +89,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Docs: `docs/OBO_TOKEN_EXCHANGE.md` (+ README cross-links); runnable
   `examples/obo`. Contract gate extended (`POST /auth/oauth/token` response pin).
 
-## [0.11.0] — 2026-09-07 — CLASS-34 contract-fidelity (BREAKING)
+## [0.11.0] — 2026-09-07 — contract-fidelity (BREAKING)
 
-> Prepared by ticket `20260907_class_sdk_api_struct_parity`. This is a
+> This is a
 > **BREAKING** minor bump (SemVer 0.x): several return types, struct fields, and one endpoint path
 > changed so the client faithfully matches the auth service wire contract. Consumers migrate with
 > `migrations/v0.10.2-to-v0.11.0/` (`migrate-check.sh` + `MIGRATION.md`; migrationbot can drive it). **No server change is
 > required.** Migrate with `migrations/v0.10.2-to-v0.11.0/` (run `migrate-check.sh` against your repo,
 > or drive `agent-cycle-prompt.md` with a coding agent).
 
-### Fixed — the client now matches the wire contract (CLASS-34 "silent unknown-field drop")
+### Fixed — the client now matches the wire contract ("silent unknown-field drop")
 
 Across ~25 endpoints the SDK request/response structs under-exposed, renamed, or mis-shaped fields the
 server actually accepts/returns — so calls hard-errored, silently validated the wrong thing, or dropped
@@ -69,13 +132,13 @@ data. Full before→after per change: `migrations/v0.10.2-to-v0.11.0/MIGRATION.m
 - **Bidirectional contract gate** (`contract_gate_test.go` + pinned `scripts/api_contract.json`,
   `make contract-gate`): reflects the paired SDK structs against the pinned API contract and fails the
   build on any missing-request / missing-response / over-exposure / envelope-mismatch drift, with a
-  reasoned allow-list — so CLASS-34 cannot silently recur. Plus 18 real-body `TestWireShape_*` tests.
+  reasoned allow-list — so cannot silently recur. Plus 18 real-body `TestWireShape_*` tests.
 
 ### Note — `billing_type` is billing-owned (by design, not a gap)
 
-`OrganizationCreate/Update` no longer carry `billing_type`: goauth's org endpoints deliberately do not
+`OrganizationCreate/Update` no longer carry `billing_type`: the auth service's org endpoints deliberately do not
 accept it (create forces PREPAID; update 400-rejects it) because a caller-set value would be self-serve
-tier escalation (ticket `20260720_billing_type_self_serve_tier_escalation`). Set org tier via the
+tier escalation. Set org tier via the
 billing service; put other custom org attributes in the `Metadata` map.
 
 ## [0.10.2] — 2026-08-31 — ship the migrationbot agent (packaging fix)
@@ -98,7 +161,7 @@ billing service; put other custom org attributes in the `Metadata` map.
 ### Fixed — `DelegationGrant` (G-04)
 
 - **`DelegationGrant` remodelled to the server's request contract.** It now sends `Scope []string`
-  (`json:"scope"`, server-**required**) and `ExpiresInHours *int` (required by the goauth backend),
+  (`json:"scope"`, server-**required**) and `ExpiresInHours *int` (required by some server builds),
   and no longer sends `Permissions`/`TargetUserID`/`ExpiresAt`/`Reason` — none of which the server's
   request schema has. The target of the grant is the AUTHENTICATED caller (you grant an actor the
   right to act as YOU), so it is not in the body.
@@ -124,7 +187,6 @@ billing service; put other custom org attributes in the `Metadata` map.
 - **Hand-rolled (non-SDK) clients:** the wire field shapes — validation, issuance, delegation, the
   `aud` contract, and the value traps (numeric timestamp, object-map quotas, `error` vs `reason`) —
   are in **`docs/FIELD_CONTRACT.md`**, verified against both live backends.
-- **Full investigation + evidence:** `tickets/20260827_sdk_contract_drift/`.
 - **Assurance going forward:** a field+value contract gate (`make field-drift` / `field-drift-strict`,
   operation-based + type-aware) now guards against this drift class. Run it before a release:
   `make field-drift-strict`.

@@ -46,15 +46,15 @@ import urllib.request
 PYTHON_URL = "https://auth.service.ab0t.com/openapi.json"
 ALT_URL = os.environ.get("AUTH_ALT_SPEC_URL", "")
 
-# Field-level divergences known and tracked in tickets/20260827_sdk_contract_drift.
+# Field-level divergences known and tracked in the contract-drift work.
 # Each entry is (GoStructName, "field") -> keeps it out of the --strict gate while
-# it is worked. Shrinks to empty as the per-domain child tickets land. Seed it with
+# it is worked. Shrinks to empty as the per-domain fixes land. Seed it with
 # a domain's whole set by adding (Name, "*").
-# Bulk per-domain field remediation is still open across the SDK (child tickets in
-# tickets/20260827_sdk_contract_drift/children/). Until a file's child ticket lands,
+# Bulk per-domain field remediation is still open across the SDK (per-domain follow-ups in
+# the contract-drift work). Until a file's fix lands,
 # its whole file is wildcard-allowed so --strict does not fail on known, tracked
 # drift. Each fixed file's REQ-MISSING types are additionally protected by unit
-# tests (contract_drift_test.go). DELETE a file's wildcard when its child ticket
+# tests (contract_drift_test.go). DELETE a file's wildcard when its fix
 # closes — the allowlist shrinks to empty as remediation completes.
 KNOWN_FIELD_GAPS: set[tuple[str, str]] = {
     ("*", f) for f in (

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -205,6 +206,17 @@ type Client struct {
 	// observer, when set, receives one RequestInfo per completed HTTP attempt.
 	// See observe.go.
 	observer Observer
+
+	// TokenFor state (tokenfor.go): the app's OAuth client credentials, the
+	// legacy actor-token exchange bridge, and the lazily created token cache.
+	clientID       string
+	clientSecret   string
+	legacyExchange bool
+	legacyAudience string
+	tokenCacheSize int
+	tokenMu        sync.Mutex
+	tcache         *tokenCache
+	authzEndpoint  string
 }
 
 // New constructs a Client. baseURL may be "" to use DefaultBaseURL.

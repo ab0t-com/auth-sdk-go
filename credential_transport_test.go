@@ -11,7 +11,7 @@ import (
 //
 //   - `Authorization: Bearer <ab0t_sk_…>` is rejected 401 at the forward-auth
 //     edge (an asserted anti-credential-confusion invariant, service-side
-//     UJ-694), even though the ordinary API routes accept it.
+//     user-journey tests), even though the ordinary API routes accept it.
 //   - a bare `Authorization: <ab0t_sk_…>` is invisible to the API routes,
 //     because FastAPI's HTTPBearer only populates credentials for the Bearer
 //     scheme — even though forward-auth accepts it.

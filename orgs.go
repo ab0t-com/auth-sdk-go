@@ -13,12 +13,12 @@ import (
 
 // ===================== Models: organisations =====================
 
-// OrganizationCreate is the body for POST /organizations/. Fields mirror the goauth
-// createOrgRequest handler struct (orgs/create.go:19-32), adding the org-profile
+// OrganizationCreate is the body for POST /organizations/. Fields mirror the server's
+// createOrgRequest handler struct, adding the org-profile
 // fields (logo_url, website, industry, size). NOTE: billing_type is NOT settable on
-// this endpoint — the handler forces the PREPAID default (create.go:43-46), so the
-// pre-v0.11.0 BillingType field was silently ignored and has been removed. See the
-// FEATURE QUESTION in the work_log about where caller-set billing_type should live.
+// this endpoint — the handler forces the PREPAID default, so the
+// pre-v0.11.0 BillingType field was silently ignored and has been removed.
+// Set the org tier through the billing service instead.
 type OrganizationCreate struct {
 	Name            string         `json:"name"`
 	Slug            string         `json:"slug,omitempty"`
@@ -35,11 +35,11 @@ type OrganizationCreate struct {
 }
 
 // OrganizationUpdate is the body for PUT /organizations/{org_id}. Fields mirror the
-// goauth updateOrgRequest handler struct (orgs/detail.go:35-48): the SDK can now
+// server's updateOrgRequest handler struct: the SDK can now
 // rename the slug and re-parent (parent_id), and set the profile fields. NOTE:
 //   - billing_type is NOT accepted here — the handler 400-REJECTS the whole request
-//     if it is present (detail.go:70-73), so BillingType was removed (a stray value
-//     would otherwise fail an unrelated update). FEATURE QUESTION filed in work_log.
+//     if it is present, so BillingType was removed (a stray value
+//     would otherwise fail an unrelated update).
 //   - status is NOT in the update schema (silently ignored), so Status was removed.
 type OrganizationUpdate struct {
 	Name     *string         `json:"name,omitempty"`
@@ -114,8 +114,7 @@ type OrgHierarchyResponse struct {
 // and counts), a child carries the org's fields INLINE (flattened) plus its own
 // recursive `children`. Modelling children as OrgHierarchyResponse (the pre-v0.11.0
 // bug) dropped every child's org fields, since they were looked for under a
-// non-existent "organization" sub-key. Mirrors goauth childOrgOut
-// (orgs/hierarchy.go:24-27: embedded orgResponse + children).
+// non-existent "organization" sub-key. Mirrors the server's child-org shape.
 type OrgHierarchyChild struct {
 	OrgInfo
 	Children []OrgHierarchyChild `json:"children,omitempty"`
@@ -161,8 +160,8 @@ func (r *OrgHierarchyResponse) WalkOrgTree(fn func(org *OrgInfo, depth int)) {
 // OrgMember is one organization membership entry as returned by
 // GET /organizations/{org_id}/users. The endpoint returns a BARE JSON array of
 // these objects (not an envelope), so ListOrgUsers decodes into []OrgMember.
-// Fields mirror the goauth orgUserResponse handler struct
-// (goauth/internal/httpapi/orgs/members.go). Note the member-scoped grants are
+// Fields mirror the server's orgUserResponse struct
+// . Note the member-scoped grants are
 // carried on org_permissions (NOT permissions).
 type OrgMember struct {
 	ID             string         `json:"id,omitempty"`
@@ -195,7 +194,7 @@ type RoleUpdateResponse struct {
 }
 
 // OrgRoleUpdate is the body for PUT /organizations/{org_id}/users/{user_id}. The
-// handler reads ONLY role (goauth updateRoleRequest, orgs/members.go:133-135), so
+// handler reads ONLY role (the server's updateRoleRequest), so
 // the pre-v0.11.0 Permissions field was silently ignored (a member's permissions
 // are set via the invite or team, not this role update) and has been removed.
 type OrgRoleUpdate struct {
@@ -203,7 +202,7 @@ type OrgRoleUpdate struct {
 }
 
 // OrganizationInvite is the body for POST /organizations/{org_id}/invite. Fields
-// mirror the goauth inviteRequest handler struct (orgs/invitations.go:25-31): a
+// mirror the server's inviteRequest struct: a
 // SINGLE team_id (not team_ids), plus per-invite permissions. The API accepts no
 // `resend` flag (re-sends are deduped server-side), so it was removed.
 type OrganizationInvite struct {
@@ -244,8 +243,8 @@ type InvitationListItem struct {
 	CancelledAt string   `json:"cancelled_at,omitempty"`
 }
 
-// OrgSession is one active session row. Field names mirror the goauth orgSession
-// handler struct (orgs/sessions.go:31-41): the id is on session_id (NOT id), the
+// OrgSession is one active session row. Field names mirror the server's orgSession
+// handler struct: the id is on session_id (NOT id), the
 // last-activity time is last_accessed (NOT last_seen_at), and the API does NOT
 // return an expiry on this listing. It also carries the user's email/name.
 type OrgSession struct {
@@ -268,7 +267,7 @@ type OrgSessionsResponse struct {
 }
 
 // SessionRevokeResponse is the result of revoking a user's org sessions. The count
-// is on sessions_revoked (goauth sessionRevokeResponse, orgs/sessions.go:121-124).
+// is on sessions_revoked (the server's sessionRevokeResponse).
 type SessionRevokeResponse struct {
 	Message         string `json:"message,omitempty"`
 	SessionsRevoked int    `json:"sessions_revoked,omitempty"`
@@ -318,7 +317,7 @@ type TeamUpdate struct {
 }
 
 // TeamMember is one team member entry from GET /teams/{team_id}/members. Fields
-// mirror the goauth teamMemberResponse handler struct (teams/teams.go:272-278):
+// mirror the server's teamMemberResponse struct:
 // {user_id, team_id, role, permissions, joined_at}. The endpoint does NOT return
 // email/name (those phantom fields were dropped), the join time is joined_at (not
 // added_at), and per-member permissions/team_id are now exposed.
@@ -344,8 +343,8 @@ type TeamMemberRoleUpdate struct {
 // TeamPermissionsResponse is the result of GET /teams/{team_id}/permissions.
 // InheritedPermissions is the union of ancestor teams' permissions (walked up the
 // parent_team_id chain server-side); enterprise callers must union it with
-// Permissions to compute a member's effective grants. Mirrors goauth
-// teamPermissionsResponse (teams/teams.go:281-285).
+// Permissions to compute a member's effective grants. Mirrors the server's
+// teamPermissionsResponse.
 type TeamPermissionsResponse struct {
 	TeamID               string   `json:"team_id,omitempty"`
 	Permissions          []string `json:"permissions"`

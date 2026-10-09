@@ -12,7 +12,7 @@ help:
 	@echo "spec    - fetch the live OpenAPI spec to /tmp/auth-openapi.json"
 	@echo "drift   - check this SDK's PATHS against the LIVE OpenAPI spec"
 	@echo "field-drift - check FIELDS+VALUES vs the live auth service (operation-based, type-aware)"
-	@echo "contract-gate - CLASS-34 bidirectional gate vs the PINNED scripts/api_contract.json (offline, CI-blocking)"
+	@echo "contract-gate - bidirectional gate vs the PINNED scripts/api_contract.json (offline, CI-blocking)"
 	@echo "release - VERSION=x.y.z  bump, tag and push a release (see RELEASING.md)"
 
 .PHONY: test
@@ -54,7 +54,7 @@ drift:
 # NAME-MISMATCH class (Actor <-> TokenValidationResponse) AND TYPE mismatches (a numeric field
 # typed as a Go string, which fails the whole decode). Runs against the live auth service.
 # Supersedes the name-based scripts/field-coverage.py.
-# CLASS-34 bidirectional contract gate: pins the API wire contract in
+# bidirectional contract gate: pins the API wire contract in
 # scripts/api_contract.json and reflects the paired SDK request/response structs,
 # failing on ANY of the four drift categories (missing-on-request, missing-on-
 # response, over-exposure, envelope-mismatch). Deterministic (no network) and

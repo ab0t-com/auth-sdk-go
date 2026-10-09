@@ -1,7 +1,7 @@
 # Migration: auth-sdk-go v0.10.2 → v0.11.0
 
 This release makes the client faithfully match the auth service's wire contract across ~25
-endpoints (CLASS-34 "silent unknown-field drop"). Many SDK request/response structs previously
+endpoints ("silent unknown-field drop"). Many SDK request/response structs previously
 under-exposed, renamed, or mis-shaped fields the server actually accepts/returns — so calls
 **hard-errored, silently validated the wrong thing, or dropped data**. The fixes are **breaking at
 the Go source level**: several return types, struct fields, and one endpoint path changed. **None of
@@ -58,8 +58,7 @@ Additive (no action, just newly available): `RegisterRequest.InvitationCode`,
 (`LogoURL`/`Website`/`Industry`/`Size`), `ReadRelationshipsForSubject`, and the model-assertions
 surface (`PutModelAssertions`/`GetModelAssertions`/`RunModelAssertions`).
 
-Full rationale per change is in `CHANGELOG.md` (the `[0.11.0]` section) and the ticket
-`auth/output/tickets/20260907_class_sdk_api_struct_parity/`.
+Full rationale per change is in `CHANGELOG.md` (the `[0.11.0]` section).
 
 ---
 
@@ -169,8 +168,8 @@ closing a footgun:
   a "resource-scoped" `ValidateToken` validated **unscoped**. For a real resource decision use
   `Authorize(ctx, token, action, authclient.Resource{Type: …, ID: …})`.
 - `OrganizationCreate.BillingType`, `OrganizationUpdate.BillingType` — billing_type is **billing-
-  owned by design** (a caller-set value would be self-serve tier escalation; goauth `create.go`
-  forces PREPAID, `update` 400-rejects it). Put non-billing custom attributes in the org `Metadata`
+  owned by design** (a caller-set value would be self-serve tier escalation; the server
+  forces PREPAID on create and 400-rejects it on update). Put non-billing custom attributes in the org `Metadata`
   map. `OrganizationUpdate.Status` is also removed (not in the update schema).
 - `RegisterRequest.ProviderType`; `OrgRegisterRequest.FirstName`/`.LastName`;
   `APIKeyCreate.OrgID`/`.Audience`; `APIKeyUpdate.Metadata`; `OrgRoleUpdate.Permissions` — all

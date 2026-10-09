@@ -9,14 +9,14 @@ import (
 	"time"
 )
 
-// These tests decode REAL API-shaped JSON bodies (copied from the goauth
-// handler encode sites, not from SDK structs) to prove the SDK request/response
+// These tests decode REAL API-shaped JSON bodies (copied from the server's
+// response encoders, not from SDK structs) to prove the SDK request/response
 // structs match the wire shape the auth API actually produces/accepts. They are
-// the regression guard for CLASS-34 ("Silent Unknown-Field Drop"): a struct that
+// the regression guard for ("Silent Unknown-Field Drop"): a struct that
 // under-exposes or type-mismatches an API field will fail one of these.
 
 // P0-1: GET /organizations/{org_id}/users returns a BARE array of member
-// objects (goauth orgs/members.go ListMembers -> WriteJSON(out []orgUserResponse)).
+// objects (the server's ListMembers response).
 func TestWireShape_ListOrgUsers_BareArray(t *testing.T) {
 	body := `[
 	  {"id":"usr_1","user_id":"usr_1","email":"a@b.com","name":"A B","provider_type":"internal",
@@ -47,7 +47,7 @@ func TestWireShape_ListOrgUsers_BareArray(t *testing.T) {
 // at the TOP LEVEL; PUT 400-rejects unknown top-level keys. Prove the merged GET
 // body decodes and a partial PUT marshals to section-nested keys only.
 func TestWireShape_LoginConfig_NestedSections(t *testing.T) {
-	// A real merged GET body (goauth loginConfigDefaults deep-merged).
+	// A real merged GET body (the server's loginConfigDefaults deep-merged).
 	body := `{
 	  "branding":{"logo_url":"https://x/y.png","primary_color":"#2563EB","hide_powered_by":false,
 	              "security_badge":{"ssl":true,"soc2":true}},

@@ -111,7 +111,8 @@ each to the endpoint that can resolve it, so agents and humans go through exactl
 | **AuthZ (ReBAC / Zanzibar)** | `ZanzibarCheck`(+`Bulk`/`Wildcard`), `Expand`, `List(Objects\|Users)`, relationship write/delete, namespaces, hierarchy, visualize, watch |
 | **Users** | CRUD, profile, password reset, **self-delete (`DeleteCurrentUser`)** |
 | **Organizations & teams** | CRUD, membership, roles, invitations, session revocation |
-| **API keys & delegation** | create/list/update/delete, service accounts, delegation grant/check, **on-behalf-of token exchange (`ExchangeToken`, RFC 8693) — see [docs/OBO_TOKEN_EXCHANGE.md](docs/OBO_TOKEN_EXCHANGE.md)** |
+| **Calling other mesh services** | **`TokenFor`** — one call for a token to another service, as the service itself (client credentials) or for a signed-in person (RFC 8693 token exchange); cached, typed errors — see [Calling another mesh service](#calling-another-mesh-service--tokenfor) and [docs/OBO_TOKEN_EXCHANGE.md](docs/OBO_TOKEN_EXCHANGE.md). Raw `ExchangeToken` / `OAuthToken` remain |
+| **API keys & delegation** | create/list/update/delete, service accounts, delegation grant/check |
 | **SSO / federation** | providers, SAML, OAuth/OIDC, attribute mappings, JIT provisioning |
 | **Mesh** | `ListMeshProviders`, `GetMeshProvider`, `PublishMeshProvider` |
 | **Admin & system** | password policy, privilege elevation, super-admin grants, quotas, events, health |
@@ -189,6 +190,44 @@ and the rest keep working unchanged, so anything the service can do stays reacha
 > duplicate side effect — two invitations, two orgs, two emitted webhooks. Where once-only semantics
 > matter, use `WithMaxRetries(0)` for that client or call.
 
+## Calling another mesh service — `TokenFor`
+
+Your app gets a token for service B with one call. Pass `nil` as the session when your service acts
+as itself; pass the signed-in person's session when it acts for them:
+
+```go
+c := auth.New(authURL, auth.WithClientCredentials(clientID, clientSecret)) // sent as HTTP Basic
+
+tok, err := c.TokenFor(ctx, "https://b.service.example", "b.documents.read", nil)     // as the service
+tok, err  = c.TokenFor(ctx, "https://b.service.example", "b.documents.read", session) // for the person
+var consent *auth.ConsentRequired
+switch {
+case errors.Is(err, auth.ErrReauthenticate):  // the person's token was not accepted — sign them in again, retry once
+case errors.As(err, &consent):                 // the person can approve: send them to consent.AuthorizationURL(...)
+case errors.Is(err, auth.ErrNoConnection):     // invalid_target — no usable connection / unknown resource
+case errors.Is(err, auth.ErrScopeNotAllowed):  // invalid_scope — ask for less
+case errors.Is(err, auth.ErrClientAuth):       // invalid_client — fix / rotate the secret
+case errors.Is(err, auth.ErrClientNotEnabled): // unauthorized_client — register the grant type
+case errors.Is(err, auth.ErrUnavailable):      // 5xx / network — back off; never treat as allowed
+}
+req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+```
+
+- Tokens are cached in memory until 30 s before they expire (bounded, one request per key under
+  concurrency, errors never cached), so call `TokenFor` per request. There is no refresh token.
+- Only the client credentials go to the token endpoint — a `WithAPIKey` key is not sent there.
+- The person-present call sends the person's token as `subject_token` with your client credentials
+  and no `actor_token` (RFC 8693, the target design). **Until your auth service accepts that, add
+  `auth.WithLegacyActorExchange(audience)`**: TokenFor then runs today's chain (your app's
+  client-credentials token as the `actor_token`, `audience` = B's registered service audience, plus a
+  one-time delegation grant from each person). Removing the option later is the only change.
+- Error names follow the wire: `400 invalid_request` and `400 invalid_grant` both mean "re-authenticate"
+  (services are moving from the second to the first), `invalid_target` (+ `"suberror":"consent_required"`),
+  `invalid_scope`, `invalid_client`, `unauthorized_client`.
+
+Setup and the full wire contract: [docs/OBO_TOKEN_EXCHANGE.md](docs/OBO_TOKEN_EXCHANGE.md);
+runnable: [`examples/obo`](examples/obo/main.go). Test it with `authclienttest.NewTokenEndpoint()`.
+
 ## HTTP middleware
 
 `authmw` gates routes, so you do not copy-paste a gate out of an example:
@@ -202,6 +241,9 @@ http.ListenAndServe(":8080", gate.Authenticate(mux))
 ```
 
 `401` no credential · `403` denied · **`503` auth service unreachable** · else your handler.
+
+The credential is read from `Authorization: Bearer …`, or — when that header is absent — from
+`X-API-Key`, the header mesh consumers send their service key in (`authmw.Credential`).
 
 That 503 is the whole point. "I could not decide" is not "yes" — a gate that allows on error turns
 an auth-service blip into an open door, quietly, because the requests succeed and nothing pages
@@ -242,6 +284,16 @@ srv := authclienttest.NewServer()
 defer srv.Close()
 client := auth.New(srv.URL())
 srv.SetStatus(503)   // now assert your handler answers 503, not 200
+```
+
+For code that calls `TokenFor`, script the token endpoint:
+
+```go
+te := authclienttest.NewTokenEndpoint()
+defer te.Close()
+te.Script(authclienttest.TokenError(400, "invalid_target", "consent_required"))
+c := auth.New(te.URL(), auth.WithClientCredentials("app", "secret"))
+// … TokenFor now returns *auth.ConsentRequired; te.Requests() shows what was sent
 ```
 
 ## Observability
@@ -306,7 +358,7 @@ the warnings from if the server ever ships them.
 | | |
 |---|---|
 | [`docs/USAGE.md`](docs/USAGE.md) | The cookbook — task-shaped recipes, install to troubleshooting |
-| [`docs/OBO_TOKEN_EXCHANGE.md`](docs/OBO_TOKEN_EXCHANGE.md) | On-behalf-of (RFC 8693) token exchange — `ExchangeToken`, the two prerequisites, the org-bound / fail-closed rules |
+| [`docs/OBO_TOKEN_EXCHANGE.md`](docs/OBO_TOKEN_EXCHANGE.md) | Tokens for other mesh services — `TokenFor` (service or on-behalf-of a person), the bridge for today's services, setup, wire errors |
 | [`docs/CLI.md`](docs/CLI.md) | Complete command and flag reference |
 | [`skills/auth-sdk-go-concepts`](skills/auth-sdk-go-concepts/SKILL.md) | The mental model: two authz systems, typed ids, tenancy, nested orgs |
 | [`skills/auth-sdk-go-cli`](skills/auth-sdk-go-cli/SKILL.md) | Operating the CLI |

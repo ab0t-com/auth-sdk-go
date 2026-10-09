@@ -16,12 +16,9 @@ import (
 // /zanzibar/stores/{store_id}/... convention as permissions.go; where a route
 // is not fixed by an existing method it uses the OpenFGA-canonical path.
 //
-// SERVER STATUS (re-verified against goauth
-// internal/httpapi/zanzibarhttp/authmodels.go + zanzibarhttp.go:160-162 on
-// 2026-09-07):
+// SERVER STATUS (re-verified 2026-09-07):
 //
-// Authorization-MODEL management IS now implemented by the auth service (ticket
-// 20260901_zanzibar_surface_completion) at:
+// Authorization-MODEL management IS now implemented by the auth service at:
 //   - CreateAuthModel  POST /zanzibar/stores/{store_id}/authorization-models
 //   - ListAuthModels   GET  /zanzibar/stores/{store_id}/authorization-models
 //   - GetAuthModel     GET  /zanzibar/stores/{store_id}/authorization-models/{id}
@@ -35,8 +32,7 @@ import (
 // neither accepts nor returns DSL today — supply TypeDefinitions.
 //
 // Atomic write+delete: WriteAndDeleteRelationships now targets the REAL batch route
-// POST .../write with the {writes,deletes} of {object,relation,subject} body (goauth
-// zanzibarhttp/transact.go); the old .../relationships/transact path never existed.
+// POST .../write with the {writes,deletes} of {object,relation,subject} body; the old .../relationships/transact path never existed.
 //
 // The list-relationships pagination is also a SERVER-GAP: the real GET
 // .../relationships/{object_type}/{object_id} accepts only a `relation` query
@@ -169,8 +165,7 @@ func (c *Client) ListAuthorizationModels(ctx context.Context, storeID, pageToken
 // ---- Authorization-model assertions (model testing) ----
 //
 // Assertions pin expected Check outcomes to a model version so a schema change can
-// be regression-tested (OpenFGA-style). Wire shapes mirror goauth
-// zanzibarhttp/assertions.go:39-70.
+// be regression-tested (OpenFGA-style). Wire shapes mirror the server's assertions endpoint.
 
 // AssertionTupleKey is the (object, relation, user) a model assertion checks.
 type AssertionTupleKey struct {
@@ -263,8 +258,8 @@ type TransactRelationshipsRequest struct {
 	Deletes []RelationshipRequest `json:"deletes,omitempty"`
 }
 
-// MarshalJSON emits the exact transact wire shape (goauth transactRequestBody /
-// transactTupleWire, zanzibarhttp/transact.go:27-35): writes/deletes of
+// MarshalJSON emits the exact transact wire shape (the server's transactRequestBody /
+// transactTupleWire): writes/deletes of
 // {object, relation, subject} only.
 func (r TransactRelationshipsRequest) MarshalJSON() ([]byte, error) {
 	type tuple struct {
@@ -285,8 +280,7 @@ func (r TransactRelationshipsRequest) MarshalJSON() ([]byte, error) {
 	}{Writes: conv(r.Writes), Deletes: conv(r.Deletes)})
 }
 
-// TransactResponse is the result of the atomic write+delete (goauth transactResponse,
-// zanzibarhttp/transact.go:38-43): how many tuples were written/deleted plus the
+// TransactResponse is the result of the atomic write+delete: how many tuples were written/deleted plus the
 // consistency token for read-after-write.
 type TransactResponse struct {
 	Success          bool   `json:"success"`
@@ -436,7 +430,7 @@ type SubjectRelationship struct {
 
 // readTuplesResponse is the wire shape of POST .../read: a page of tuples plus a
 // continuation_token (empty on the last page). Each tuple carries the grant's
-// timestamp (created) and expires_at (goauth readTupleEntry, zanzibarhttp/read.go:56-63).
+// timestamp (created) and expires_at (the server's readTupleEntry).
 type readTuplesResponse struct {
 	Tuples []struct {
 		Key struct {
