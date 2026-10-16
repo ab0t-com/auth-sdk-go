@@ -168,6 +168,25 @@ func (c *Client) Me(ctx context.Context, token string) (*User, error) {
 // server's Authenticate middleware) can treat both credential types uniformly.
 //
 // The configured expected audience (WithExpectedAudience) is applied if set.
+//
+// # Server-side validation, and how that differs from VerifyAccessTokenLocal
+//
+// ValidateToken asks the AUTH SERVICE. The service's access tokens are
+// SESSION-BACKED: logout, a revoked session, a deactivated user or a removed org
+// membership make the token invalid there IMMEDIATELY, long before its exp.
+// ValidateToken sees that; VerifyAccessTokenLocal (signature + claims, no network)
+// cannot, and keeps accepting a logged-out token until it expires (access tokens
+// live about 15 minutes). Use ValidateToken where "logged out means out" matters.
+//
+// # Caching (on by default since v0.12.0)
+//
+// Answers are cached in-process: a JWT's "valid" for 15 s (never past the token's
+// own exp), "not valid" for 5 s; with an ab0t_sk_ API key, "valid" for 60 s and
+// "not valid" for 10 s. So after a logout this process may keep accepting the
+// token for up to 15 s, and a revoked API key for up to 60 s. Errors (network,
+// 429, 5xx) are never cached and a stale entry is never served through one. Opt
+// out per client with WithValidationCache(0), per call with
+// WithFreshValidation(ctx), or per credential with InvalidateValidation.
 func (c *Client) ValidateToken(ctx context.Context, token string) (*Actor, error) {
 	if IsAPIKey(token) {
 		return c.apiKeyActor(ctx, token, nil)
@@ -204,6 +223,12 @@ func (c *Client) apiKeyActor(ctx context.Context, key string, requiredPerms []st
 
 // ValidateTokenWith performs a fully-specified validation, allowing inline
 // permission and resource assertions. POST /auth/validate-token.
+//
+// Like ValidateToken it asks the auth service (so it sees logout immediately)
+// and its answer is cached by default: 15 s for "valid" (never past the token's
+// exp), 5 s for "not valid". A request carrying RequiredPermissions is a
+// permission decision and uses the permission-decision TTLs (also 15 s / 5 s by
+// default). See ValidateToken for the opt-outs.
 func (c *Client) ValidateTokenWith(ctx context.Context, req TokenValidationRequest) (*Actor, error) {
 	if req.ExpectedAudience == "" {
 		req.ExpectedAudience = c.expectedAudience
@@ -225,7 +250,14 @@ func (c *Client) ValidateTokenWith(ctx context.Context, req TokenValidationReque
 	// them.
 	key := validationKey("validate-token", req.Token, req.ExpectedAudience,
 		req.RequiredPermissions, req.IncludePermissions)
-	return c.vcache.get(ctx, key, fetch)
+	class := classToken
+	if len(req.RequiredPermissions) > 0 {
+		class = classDecision
+	}
+	// The token's own exp caps a positive entry (validate-token does not report
+	// expires_at for JWTs, so read it from the token; it can only shorten).
+	notAfter := unverifiedJWTExpiry(req.Token)
+	return c.vcache.get(ctx, key, class, notAfter, fetch)
 }
 
 // Authorize reports whether token may perform action on resource. This is the
@@ -252,9 +284,20 @@ func (c *Client) ValidateTokenWith(ctx context.Context, req TokenValidationReque
 // unscoped allow.
 //
 // Cost: a resource-scoped Authorize performs subject-resolution and then the PDP
-// check (two round trips). The optional validation cache (WithValidationCache)
-// absorbs the subject-resolution call. A resource-less Authorize is a single
-// validate-token capability check, unchanged.
+// check (two round trips). A resource-less Authorize is a single validate-token
+// (or validate-api-key) capability check.
+//
+// # Caching (on by default since v0.12.0)
+//
+// The decision is cached in-process: "allowed" for 15 s, "denied" for 5 s. So a
+// permission removed at the auth service may keep being allowed by this process
+// for up to 15 s (and a logged-out token likewise). Errors are never cached, and
+// Authorize still fails closed — an expired entry is never served when the auth
+// service cannot be reached. For a sensitive action (admin, money movement,
+// ownership change) pass WithFreshValidation(ctx) to always ask the service;
+// WithValidationCache(0) turns caching off for the whole client. Under an
+// explicit WithValidationCache(ttl) configuration the resource-scoped PDP call is
+// not cached (only its subject-resolution step is), exactly as before v0.12.0.
 func (c *Client) Authorize(ctx context.Context, token, action string, resource Resource) (bool, error) {
 	if resource.IsZero() {
 		return c.authorizeUnscoped(ctx, token, action)
@@ -308,20 +351,56 @@ func (c *Client) authorizeOnResource(ctx context.Context, token, action string, 
 	// credential being authorized (the subject checks their own access — this
 	// needs no separate service key; passing "" would fall back to the configured
 	// service key and 401 when none is set). Fail closed on any error.
-	dec, err := c.CheckPermission(ctx, PermissionCheckRequest{
-		UserID:       actor.UserID,
-		OrgID:        actor.OrgID,
-		Permission:   action,
-		ResourceType: resource.Type,
-		ResourceID:   resource.ID,
-	}, token)
+	check := func(ctx context.Context) (*Actor, error) {
+		dec, err := c.CheckPermission(ctx, PermissionCheckRequest{
+			UserID:       actor.UserID,
+			OrgID:        actor.OrgID,
+			Permission:   action,
+			ResourceType: resource.Type,
+			ResourceID:   resource.ID,
+		}, token)
+		if err != nil {
+			return nil, err
+		}
+		return &Actor{Valid: dec.Allowed}, nil
+	}
+	v := c.vcache
+	if v == nil || v.explicit {
+		// No cache, or an explicit pre-v0.12.0 configuration: the PDP decision is
+		// not cached (only the subject-resolution step above may be).
+		dec, err := check(ctx)
+		if err != nil {
+			return false, err
+		}
+		return dec.Valid, nil
+	}
+	// Default cache: the decision is a permission decision (15 s / 5 s). The key
+	// is prefixed by the credential (so InvalidateValidation drops it) and covers
+	// every input of the question, including the subject it resolved to.
+	key := validationKey("authorize-resource", token, c.expectedAudience,
+		[]string{action, resource.Type, resource.ID, actor.UserID, actor.OrgID}, false)
+	notAfter := unverifiedJWTExpiry(token)
+	dec, err := v.get(ctx, key, classDecision, notAfter, check)
 	if err != nil {
 		return false, err
 	}
-	return dec.Allowed, nil
+	if dec == nil {
+		return false, nil
+	}
+	return dec.Valid, nil
 }
 
 // ValidateAPIKey validates a service API key. POST /auth/validate-api-key.
+//
+// # Caching (on by default since v0.12.0)
+//
+// The answer is cached in-process: "valid" for 60 s, "not valid" for 10 s — so a
+// key revoked at the auth service may keep validating in this process for up to
+// 60 s. A request carrying RequiredPermissions is a permission decision and uses
+// the shorter permission-decision TTLs (15 s / 5 s). Errors (network, 429, 5xx)
+// are never cached and a stale entry is never served through one. Opt out per
+// client with WithValidationCache(0), per call with WithFreshValidation(ctx), or
+// per key with InvalidateValidation(key).
 func (c *Client) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest) (*APIKeyValidation, error) {
 	if req.ExpectedAudience == "" {
 		req.ExpectedAudience = c.expectedAudience
@@ -342,7 +421,11 @@ func (c *Client) ValidateAPIKey(ctx context.Context, req ValidateAPIKeyRequest) 
 	// which an act-as service key can carry.
 	key := validationKey("validate-api-key", req.APIKey, req.ExpectedAudience,
 		req.RequiredPermissions, false)
-	actor, err := c.vcache.get(ctx, key, func(ctx context.Context) (*Actor, error) {
+	class := classAPIKey
+	if len(req.RequiredPermissions) > 0 {
+		class = classDecision
+	}
+	actor, err := c.vcache.get(ctx, key, class, time.Time{}, func(ctx context.Context) (*Actor, error) {
 		v, err := fetch(ctx)
 		if err != nil {
 			return nil, err

@@ -198,10 +198,15 @@ type Client struct {
 
 	jwks *jwksCache
 
-	// vcache, when non-nil, caches credential-validation decisions. Opt-in via
-	// WithValidationCache; nil means every validation is an HTTP call, which is
-	// the historical behavior and stays the default. See validationcache.go.
+	// vcache, when non-nil, caches credential-validation decisions. Since v0.12.0
+	// it is ON by default with per-question TTLs (newDefaultValidationCache);
+	// WithValidationCache / WithValidationCacheOptions replace that, and a zero
+	// TTL leaves it nil, meaning every validation is an HTTP call (the pre-v0.12.0
+	// behaviour). See validationcache.go.
 	vcache *validationCache
+	// vcacheConfigured records that the consumer chose a cache configuration
+	// (including "off"), so New does not install the default over it.
+	vcacheConfigured bool
 
 	// observer, when set, receives one RequestInfo per completed HTTP attempt.
 	// See observe.go.
@@ -244,6 +249,12 @@ func New(baseURL string, opts ...Option) *Client {
 		c.http = &cp
 	}
 	c.jwks = newJWKSCache(c)
+	if !c.vcacheConfigured {
+		// Default-on validation cache (owner decision, v0.12.0). The consumer
+		// said nothing, so it gets the per-question defaults; see
+		// validationcache.go for the TTLs and the revocation latency they imply.
+		c.vcache = newDefaultValidationCache()
+	}
 	return c
 }
 

@@ -10,6 +10,15 @@ One directory per breaking upgrade, named `vFROM-to-vTO/`, each containing:
 
 Upgrading across several versions? Run each version's checker in order.
 
+## Kit index
+
+| Kit | Kind | What it covers |
+|---|---|---|
+| [`v0.9.2-to-v0.10.0/`](v0.9.2-to-v0.10.0/) | breaking (source) | contract-fidelity: renames, retypes, removed fields; resource-scoped `Authorize` fails closed |
+| [`v0.10.0-to-0.10.1/`](v0.10.0-to-0.10.1/) | breaking (source) | `DelegationGrant` request shape (`GrantDelegation`) |
+| [`v0.10.2-to-v0.11.0/`](v0.10.2-to-v0.11.0/) | breaking (source) | contract-fidelity across ~25 endpoints (return types, field renames/removals) |
+| [`v0.11.2-to-v0.12.0/`](v0.11.2-to-v0.12.0/) | **behavioural** (no source change) | validation cache ON by default (API key 60 s, JWT 15 s, permission 15 s revocation latency); `WithFreshValidation`; new `VerifyAccessTokenLocal`. Its checker lists clients and validation call sites to **review**, plus the `if ttl > 0` opt-in and `authclienttest` patterns the new default changes. See its `CLIENT_NOTICE.md`. |
+
 ## Automating the migration (optional)
 
 The migration is fully self-serve from the files above — no special tooling required. Hand

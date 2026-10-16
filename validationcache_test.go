@@ -52,22 +52,26 @@ func (s *countingValidator) handler(t *testing.T) http.HandlerFunc {
 
 func (s *countingValidator) n() int { return int(atomic.LoadInt32(&s.calls)) }
 
-// ---- the default: no cache, no behavior change ----
+// ---- the default: ON since v0.12.0 (owner decision) ----
+//
+// Until v0.12.0 this slot held TestValidationCacheDisabledByDefault, asserting the
+// opposite. The owner changed the default (validationcache.go, "WHY IT IS NOW ON BY
+// DEFAULT"); the per-question TTLs are asserted in validationcache_defaults_test.go.
 
-func TestValidationCacheDisabledByDefault(t *testing.T) {
+func TestValidationCacheOnByDefault(t *testing.T) {
 	srv := &countingValidator{actor: Actor{Valid: true, UserID: "u1", OrgID: "o1"}}
 	c, _ := newTestClient(t, srv.handler(t))
 
-	if stats := c.ValidationCacheStats(); stats.Enabled {
-		t.Fatalf("cache enabled without WithValidationCache — upgrading the SDK must not change auth semantics")
+	if stats := c.ValidationCacheStats(); !stats.Enabled {
+		t.Fatalf("cache disabled without any option — v0.12.0 turns it on by default")
 	}
 	for i := 0; i < 3; i++ {
 		if _, err := c.ValidateToken(context.Background(), testJWT); err != nil {
 			t.Fatalf("ValidateToken: %v", err)
 		}
 	}
-	if srv.n() != 3 {
-		t.Errorf("auth calls = %d, want 3 (no cache configured)", srv.n())
+	if srv.n() != 1 {
+		t.Errorf("auth calls = %d, want 1 (default cache serves the repeats)", srv.n())
 	}
 }
 

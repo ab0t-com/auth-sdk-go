@@ -65,6 +65,11 @@ const jwksMaxEntries = 512
 type jwksCache struct {
 	c   *Client
 	ttl time.Duration
+	// kidCooldown bounds how often an UNKNOWN kid may force a refetch of one key
+	// set (refreshForUnknownKid); 0 means jwksUnknownKidCooldown.
+	kidCooldown time.Duration
+	// now is time.Now, replaceable in tests.
+	now func() time.Time
 
 	mu      sync.Mutex
 	entries map[string]*jwksEntry
@@ -78,10 +83,30 @@ type jwksEntry struct {
 	keys    JWKS
 	fetched time.Time
 	err     error
+	// forcedAt is when an unknown kid last forced a refetch (refreshForUnknownKid).
+	forcedAt time.Time
 }
 
+// jwksUnknownKidCooldown is the minimum interval between two refetches of one key
+// set that were forced by a token naming a kid the cached set does not hold.
+//
+// A kid comes from the TOKEN, i.e. from whoever sent the request. Without a
+// bound, a stream of tokens with random kids turns every request into a JWKS
+// fetch — an amplification of attacker traffic onto the auth service. Key
+// rotation still works: the first token signed by a new key after the window
+// triggers exactly one refetch.
+const jwksUnknownKidCooldown = time.Minute
+
 func newJWKSCache(c *Client) *jwksCache {
-	return &jwksCache{c: c, ttl: jwksCacheTTL, entries: make(map[string]*jwksEntry), maxEntries: jwksMaxEntries}
+	return &jwksCache{c: c, ttl: jwksCacheTTL, kidCooldown: jwksUnknownKidCooldown, now: time.Now,
+		entries: make(map[string]*jwksEntry), maxEntries: jwksMaxEntries}
+}
+
+func (j *jwksCache) clock() time.Time {
+	if j.now != nil {
+		return j.now()
+	}
+	return time.Now()
 }
 
 func (j *jwksCache) entry(path string) *jwksEntry {
@@ -136,10 +161,14 @@ func (j *jwksCache) get(ctx context.Context, path string, force bool) (JWKS, err
 	e.once.Lock()
 	defer e.once.Unlock()
 
-	if !force && e.err == nil && !e.fetched.IsZero() && time.Since(e.fetched) < j.ttl {
+	if !force && e.err == nil && !e.fetched.IsZero() && j.clock().Sub(e.fetched) < j.ttl {
 		return e.keys, nil
 	}
+	return j.fetchLocked(ctx, path, e)
+}
 
+// fetchLocked performs the fetch for e. Caller must hold e.once.
+func (j *jwksCache) fetchLocked(ctx context.Context, path string, e *jwksEntry) (JWKS, error) {
 	var fresh JWKS
 	err := j.c.doGet(ctx, path, &fresh, "")
 	if err != nil {
@@ -152,7 +181,32 @@ func (j *jwksCache) get(ctx context.Context, path string, force bool) (JWKS, err
 		return JWKS{}, err
 	}
 	e.keys = fresh
-	e.fetched = time.Now()
+	e.fetched = j.clock()
 	e.err = nil
 	return fresh, nil
+}
+
+// refreshForUnknownKid refetches path's key set because a token named a kid the
+// cached set does not hold — at most once per kidCooldown per path. Inside the
+// cooldown it makes no request and returns the cached set with refreshed=false,
+// so the caller rejects the token as "unknown kid" without touching the network.
+// The cooldown starts at the ATTEMPT, so a failing auth service is not hammered
+// either; on a failed fetch a previously-good set keeps being served (keys are
+// public; this is the same transient-outage rule as get).
+func (j *jwksCache) refreshForUnknownKid(ctx context.Context, path string) (JWKS, bool, error) {
+	e := j.entry(path)
+	e.once.Lock()
+	defer e.once.Unlock()
+
+	cooldown := j.kidCooldown
+	if cooldown <= 0 {
+		cooldown = jwksUnknownKidCooldown
+	}
+	now := j.clock()
+	if !e.forcedAt.IsZero() && now.Sub(e.forcedAt) < cooldown {
+		return e.keys, false, nil
+	}
+	e.forcedAt = now
+	keys, err := j.fetchLocked(ctx, path, e)
+	return keys, true, err
 }

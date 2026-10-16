@@ -27,6 +27,11 @@
 //	OAuth2/OIDC:    OAuthAuthorizeURL, OAuthCallback
 //	Revocation:     RevokeToken, RevokeTokenPublic
 //	Token/authz:    ValidateToken, ValidateAPIKey, Introspect, CheckPermission, Authorize
+//	                (validation answers cached in-process by default: API key 60 s,
+//	                JWT 15 s, permission decision 15 s; WithValidationCache(0) opts
+//	                out, WithFreshValidation(ctx) bypasses per call)
+//	Local verify:   VerifyAccessTokenLocal (RS256 + iss/aud/exp/nbf against the
+//	                cached JWKS, no network; cannot see logout — see localverify.go)
 //	JWKS:           JWKS, RefreshJWKS, OrgJWKS, SigningKey (TTL-cached)
 //	Users:          GetMyProfile, UpdateMyProfile, ChangeMyPassword, GetUser,
 //	                UpdateUser, Activate/DeactivateUser, VerifyUserEmail, *PasswordReset

@@ -152,7 +152,9 @@ func TestWithRealClientAgainstFakeServer(t *testing.T) {
 	srv := authclienttest.NewServer()
 	defer srv.Close()
 
-	client := auth.New(srv.URL(), auth.WithMaxRetries(0))
+	// The test flips the server's answer mid-test, so it needs the validation cache
+	// off (default-on since v0.12.0); NewClient builds exactly that client.
+	client := srv.NewClient(auth.WithMaxRetries(0))
 	g := &authmw.Gate{V: client, A: client}
 
 	if got := do(t, g.Require("world.write", "world", ok), "Bearer jwt"); got != http.StatusOK {

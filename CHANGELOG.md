@@ -4,6 +4,68 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] — 2026-10-16 — validation cache ON by default + `VerifyAccessTokenLocal`
+
+> **BEHAVIOURAL change, no source change required.** No public signature changes; one default
+> changes and new API is added. A client constructed **without** a cache option now caches
+> validation answers in-process, which means **a revocation can take up to the TTL to reach your
+> process**. Migration kit: `migrations/v0.11.2-to-v0.12.0/` (run its `migrate-check.sh`).
+
+### Changed — the validation cache is ON by default (BEHAVIOURAL)
+
+Until now every `ValidateToken` / `ValidateAPIKey` / `Authorize` was an HTTP call unless you opted
+in with `WithValidationCache`. A client that configures nothing now gets per-question TTLs:
+
+| Question | "yes" cached | "no" cached | Revocation latency in your process |
+|---|---|---|---|
+| API-key identity — `ValidateAPIKey`, `ValidateToken(ab0t_sk_…)` | 60 s | 10 s | ≤ 60 s |
+| JWT identity — `ValidateToken`, `ValidateTokenWith` | 15 s, never past the token's `exp` | 5 s | ≤ 15 s (logout, revoked session) |
+| Permission decision — `Authorize` (unscoped and resource-scoped), any call with `RequiredPermissions` | 15 s | 5 s | ≤ 15 s (removed permission) |
+
+- Every existing safety property is kept: the key is a SHA-256 over every input; errors (network,
+  429, 5xx) are never cached; an expired entry is never served after a failed refresh (fails
+  closed); bounded at 4096 entries; one request per key under concurrency.
+- The TTL follows the question, not the method name: `Authorize` with an API key is a permission
+  decision (15 s), not an API-key identity (60 s).
+- A positive JWT entry is now also capped at the token's own `exp` claim (read from the token; it can
+  only shorten an entry). Previously only a service-reported `expires_at` capped it, and
+  `validate-token` does not report one for JWTs.
+- With the default cache, the resource-scoped PDP decision inside `Authorize` is cached too
+  (15 s / 5 s). Under an explicit `WithValidationCache(ttl)` it is **not** — exactly as before.
+- **Opt out:** `WithValidationCache(0)` restores the previous behaviour byte for byte (no cache is
+  allocated). An explicit `WithValidationCache(ttl)` / `WithValidationCacheOptions` keeps working
+  unchanged and overrides the defaults (one TTL for every question).
+- `copyActor` now also copies `DelegationScope` / `DelegationChain`, so a caller mutating a cached
+  answer's slices cannot alter the shared entry.
+
+### Added
+
+- `WithFreshValidation(ctx)` — a per-call bypass: the call always asks the auth service, and its
+  answer refreshes the shared entry. For sensitive operations (admin, money movement, ownership).
+- Default-TTL constants: `DefaultAPIKeyValidationTTL` (60 s), `DefaultAPIKeyValidationNegativeTTL`
+  (10 s), `DefaultTokenValidationTTL` (15 s), `DefaultTokenValidationNegativeTTL` (5 s),
+  `DefaultAuthorizeTTL` (15 s), `DefaultAuthorizeNegativeTTL` (5 s).
+- `(*Client).VerifyAccessTokenLocal(ctx, token, LocalVerifyOptions) (*AccessTokenClaims, error)` —
+  verifies an access token **with no network call on the hot path**: RS256 only (`none`, `HS*`,
+  `ES*`, `PS*` rejected), signature against the cached JWKS (10 min; an unknown `kid` refetches at
+  most once a minute), `iss` (default: `"ab0t-auth-service"` and the client's base URL), `aud` when
+  one is expected (`LocalVerifyOptions.Audience`, else `WithExpectedAudience`), `exp`/`nbf`/`iat`
+  with a leeway of 30 s by default and never more than 60 s, `sub` present, token type `access`
+  (refresh tokens always rejected; delegation tokens only with `AllowDelegation`). Failures match
+  `ErrInvalidAccessToken` (`*AccessTokenError` with a stable `Reason`); a key-set fetch failure is
+  returned as-is so callers can answer 503, not 401.
+  **It cannot see logout**: the service's access tokens are session-backed, and a logged-out token
+  keeps verifying locally until its `exp`. `ValidateToken` is unchanged and still asks the service.
+- `LegacyAccessTokenIssuer`, `DefaultLocalVerifyLeeway`, `MaxLocalVerifyLeeway`.
+- `authclienttest.(*Server).NewClient(opts...)` — a real client against the fake service with the
+  validation cache **off**, for tests that change the fake's answer mid-test.
+
+### Testing note for consumers
+
+A test that builds a real client with `auth.New(srv.URL())` against `authclienttest.Server` and then
+flips the fake's answer (`SetValid(false)`, `SetStatus(503)`) will now see the cached earlier answer.
+Build that client with `srv.NewClient()` or add `auth.WithValidationCache(0)`.
+
 ## [0.11.2] — 2026-10-09 — `TokenFor`: one call for a token to another mesh service
 
 > **Additive, backwards-compatible.** No existing signature or behaviour changes, except that

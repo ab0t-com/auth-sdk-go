@@ -209,7 +209,22 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 }
 
 // URL is the base URL to hand to auth.New.
+//
+// Since auth-sdk-go v0.12.0 a client built with auth.New(srv.URL()) has the
+// validation cache ON, so a test that flips this server's answer mid-test
+// (SetValid, SetStatus, SetActor) keeps seeing the cached answer for up to the
+// TTL. Build the client with NewClient — or pass auth.WithValidationCache(0)
+// yourself — when the test changes the server's answer.
 func (s *Server) URL() string { return s.srv.URL }
+
+// NewClient returns a real *auth.Client pointed at this server with the
+// validation cache DISABLED, so every SetValid / SetStatus / SetActor is seen by
+// the very next call. opts are applied after that default, so passing
+// auth.WithValidationCache(ttl) re-enables a cache when a test wants to exercise
+// one.
+func (s *Server) NewClient(opts ...auth.Option) *auth.Client {
+	return auth.New(s.URL(), append([]auth.Option{auth.WithValidationCache(0)}, opts...)...)
+}
 
 // Close shuts the server down.
 func (s *Server) Close() { s.srv.Close() }

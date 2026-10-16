@@ -106,7 +106,7 @@ each to the endpoint that can resolve it, so agents and humans go through exactl
 
 | Area | Methods |
 |---|---|
-| **AuthN** | `ValidateToken`, `ValidateAPIKey`, `Introspect`, `JWKS`, `OrgJWKS`, login/refresh/logout |
+| **AuthN** | `ValidateToken`, `ValidateAPIKey` (cached by default — see [Validation caching](#validation-caching-and-local-verification)), `VerifyAccessTokenLocal` (no network), `Introspect`, `JWKS`, `OrgJWKS`, login/refresh/logout |
 | **AuthZ (RBAC)** | `Authorize`, `CheckPermission`, `CheckPermissionPublic`, grant/revoke, permission registry |
 | **AuthZ (ReBAC / Zanzibar)** | `ZanzibarCheck`(+`Bulk`/`Wildcard`), `Expand`, `List(Objects\|Users)`, relationship write/delete, namespaces, hierarchy, visualize, watch |
 | **Users** | CRUD, profile, password reset, **self-delete (`DeleteCurrentUser`)** |
@@ -189,6 +189,48 @@ and the rest keep working unchanged, so anything the service can do stays reacha
 > response was lost will be retried, and on an endpoint with no natural dedup key that can produce a
 > duplicate side effect — two invitations, two orgs, two emitted webhooks. Where once-only semantics
 > matter, use `WithMaxRetries(0)` for that client or call.
+
+## Validation caching and local verification
+
+**Validation answers are cached in-process by default (since v0.12.0).** The TTL of a "yes" is the
+time a revocation can take to reach your process — that is the trade, stated plainly:
+
+| Question | "yes" cached | "no" cached | So after a revocation this process may keep accepting for up to |
+|---|---|---|---|
+| `ValidateAPIKey`, `ValidateToken` with an `ab0t_sk_` key | 60 s | 10 s | **60 s** (deleted / revoked API key) |
+| `ValidateToken` / `ValidateTokenWith` with a JWT | 15 s, never past the token's `exp` | 5 s | **15 s** (logout, revoked session, removed membership) |
+| `Authorize`, or any validation with `RequiredPermissions` | 15 s | 5 s | **15 s** (removed permission) |
+
+Errors (network, 429, 5xx) are never cached, and an expired entry is never served when the auth
+service cannot be reached — the cache fails closed. Ways out, from narrow to broad:
+
+```go
+client.InvalidateValidation(cred)                       // you learned a credential is gone
+ok, err := client.Authorize(authclient.WithFreshValidation(ctx), tok, "billing.refund", res) // always ask, for this call
+client := authclient.New("", authclient.WithValidationCache(0))  // no cache at all (pre-v0.12.0 behaviour)
+```
+
+An explicit `WithValidationCache(ttl)` / `WithValidationCacheOptions` keeps exactly what it says:
+one TTL for every question (and, as before, no caching of the resource-scoped PDP call inside
+`Authorize`). `ValidationCacheStats()` shows hits and misses.
+
+**`VerifyAccessTokenLocal`** verifies a JWT with no network call: RS256 signature against the
+cached JWKS (an unknown `kid` refetches at most once a minute), `iss`, `aud` (when you expect one),
+`exp`/`nbf` with at most 60 s of clock skew, and the token type (refresh tokens are always rejected;
+delegation tokens only with `AllowDelegation`). **It cannot see logout.** The service's access
+tokens are session-backed — logout revokes them at the service immediately — and a local check
+keeps accepting a logged-out token until its `exp` (about 15 minutes). That is why `ValidateToken`
+still asks the service; choose per route. A failed check matches `ErrInvalidAccessToken` (answer
+401); any other error means the key set could not be fetched (answer 503).
+
+```go
+claims, err := client.VerifyAccessTokenLocal(ctx, tok, authclient.LocalVerifyOptions{Audience: "my-service"})
+switch {
+case errors.Is(err, authclient.ErrInvalidAccessToken): // 401
+case err != nil:                                         // 503 — could not evaluate
+default:                                                 // claims.Subject, claims.OrgID, …
+}
+```
 
 ## Calling another mesh service — `TokenFor`
 
@@ -282,9 +324,13 @@ To exercise the **real** client — its retries, decoding and error mapping — 
 ```go
 srv := authclienttest.NewServer()
 defer srv.Close()
-client := auth.New(srv.URL())
+client := srv.NewClient() // = auth.New(srv.URL(), auth.WithValidationCache(0))
 srv.SetStatus(503)   // now assert your handler answers 503, not 200
 ```
+
+Use `srv.NewClient()` (validation cache off) whenever a test changes the fake's answer mid-test
+(`SetValid`, `SetStatus`, `SetActor`): a client built with plain `auth.New(srv.URL())` has the
+default cache on, and keeps serving the earlier answer for up to its TTL.
 
 For code that calls `TokenFor`, script the token endpoint:
 
@@ -380,4 +426,7 @@ MIT — see [LICENSE](LICENSE).
 
 Breaking upgrades ship a migration kit under `migrations/vFROM-to-vTO/`: run its `migrate-check.sh`
 against your repo to find every call site to change, and read its `MIGRATION.md`. For v0.10.0 see
-`migrations/v0.9.2-to-v0.10.0/`.
+`migrations/v0.9.2-to-v0.10.0/`. For the default-on validation cache (v0.12.0) see
+`migrations/v0.11.2-to-v0.12.0/` — no source changes are required, but its checker lists the
+validation call sites to review for revocation-latency sensitivity. The full index is
+[`migrations/README.md`](migrations/README.md).

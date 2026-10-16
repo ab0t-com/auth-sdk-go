@@ -82,5 +82,9 @@ If your FROM is more than one breaking release behind TO, walk the kits in order
   migrated repo, red only on real breaks; use its `exit 0` as a gate. *Older kits bare-grep,
   so common field names (e.g. `ResourceType`) can false-positive — there, apply a change only
   where the value's type is the SDK's, and trust the clean build over the checker's exit code.*
+  The **v0.11.2-to-v0.12.0** kit is different in kind: a BEHAVIOURAL change (validation cache on
+  by default) with no source break — your build stays green regardless, so its checker lists
+  clients and call sites to *review* (a human/owner decision per site; never auto-applied) and
+  exits 0 once each is resolved or marked `// authsdk:cache-reviewed`.
 - **`migrations/agent/migrationbot.md`** — the Claude Code subagent that drives the loop.
 - **`RFC-0001-library-migration-protocol.txt`** — the protocol (change taxonomy + chaining).

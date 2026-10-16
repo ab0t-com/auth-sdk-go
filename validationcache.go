@@ -1,6 +1,8 @@
 package authclient
 
-// validationcache.go — an opt-in, TTL-bounded cache for credential validation.
+// validationcache.go — a TTL-bounded cache for credential validation and
+// permission decisions. ON BY DEFAULT since v0.12.0 (see below); opt out with
+// WithValidationCache(0).
 //
 // WHY THIS EXISTS
 //
@@ -13,15 +15,42 @@ package authclient
 // how a subtle, security-relevant object gets written five times, four of them
 // badly, so it is written ONCE, here, in the shared SDK.
 //
-// WHY IT IS OPT-IN AND NOT ON BY DEFAULT
+// WHY IT IS NOW ON BY DEFAULT — AND WHAT THAT COSTS
 //
-// Caching a validation decision extends the useful life of a credential that has
-// been revoked, expired, or had a permission removed, by up to the TTL. That is
-// a change to a SECURITY property, not a performance tuning knob, and it is not
-// something a consumer should acquire by upgrading a library. So: no cache
-// unless the consumer asks for one (WithValidationCache), and the TTL it gets is
-// the one it named. Disabling is a zero TTL, and a disabled cache is not merely
-// bypassed — it is not allocated.
+// Until v0.12.0 this cache was opt-in, by design: caching a validation decision
+// extends the useful life of a credential that has been revoked, or of a
+// permission that has been removed, by up to the TTL. That is a change to a
+// SECURITY property, and the original position was that a consumer should not
+// acquire it by upgrading a library.
+//
+// The owner revisited that trade-off and decided to turn the cache on by default,
+// with short, per-question TTLs, because in practice almost every service sits on
+// a hot path and was paying one auth round trip per request. The cost is stated
+// here plainly, because it is the whole decision:
+//
+//	question                                   remembers "yes" for   remembers "no" for
+//	API-key identity (ValidateAPIKey,           60 s                  10 s
+//	  ValidateToken with an ab0t_sk_ key)
+//	JWT identity (ValidateToken /               15 s, never past the  5 s
+//	  ValidateTokenWith)                        token's own exp
+//	any permission decision (Authorize, or a    15 s                  5 s
+//	  validation with RequiredPermissions)
+//
+// The positive TTL IS the revocation latency of this process: a revoked API key
+// can keep validating here for up to 60 s, a removed permission or a logged-out
+// session for up to 15 s. A consumer that cannot accept that has three ways out:
+//
+//   - WithValidationCache(0) turns the cache off for the whole client (the
+//     pre-v0.12.0 behaviour, byte for byte: every validation is an HTTP call);
+//   - WithFreshValidation(ctx) bypasses it for one call — use it on sensitive
+//     operations (admin actions, money movement, ownership changes);
+//   - InvalidateValidation(cred) drops what this process knows about a credential
+//     the moment the process learns it is no longer good.
+//
+// A consumer that configured the cache explicitly (WithValidationCache(ttl) or
+// WithValidationCacheOptions) keeps exactly what it configured: one TTL for every
+// question, and — as before — the resource-scoped PDP decision inside Authorize is
+// not cached. The defaults above apply only to a client that said nothing.
 //
 // THE THREE WAYS A VALIDATION CACHE GOES WRONG, AND WHAT IS DONE ABOUT EACH
 //
@@ -32,19 +61,21 @@ package authclient
 //     stream. A credential is never itself a map key, so it does not sit in
 //     process memory in plaintext any longer than the request needs it.
 //
-//  2. It fails OPEN. An error is never cached, and — unlike the JWKS cache,
-//     which deliberately serves a stale key set through a transient outage — an
-//     EXPIRED entry is never served after a failed refresh. During an auth
-//     outage this cache stops answering rather than extending every credential
-//     it has seen. Failing closed is the correct direction for an authorization
-//     decision.
+//  2. It fails OPEN. An error is never cached — that includes 429 and every 5xx
+//     — and, unlike the JWKS cache, which deliberately serves a stale key set
+//     through a transient outage, an EXPIRED entry is never served after a failed
+//     refresh. During an auth outage this cache stops answering rather than
+//     extending every credential it has seen. Failing closed is the correct
+//     direction for an authorization decision.
 //
 //  3. It outlives the credential. A positive entry's TTL is additionally capped
-//     by the token's own ExpiresAt when the service reports one, so the cache
-//     can never make an expired token look valid. A negative decision gets its
-//     own, shorter TTL: a "no" that becomes a "yes" (a permission just granted)
-//     should not take the full TTL to be noticed, and negatives are the cheap
-//     side of the trade.
+//     by the token's own expiry — the ExpiresAt the service reports, and for a
+//     JWT the `exp` claim read from the token itself — so the cache can never
+//     make an expired token look valid. (The `exp` read here is not a trust
+//     decision: it can only SHORTEN an entry, never lengthen or create one.) A
+//     negative decision gets its own, shorter TTL: a "no" that becomes a "yes"
+//     (a permission just granted) should not take the full TTL to be noticed,
+//     and negatives are the cheap side of the trade.
 //
 // Entries are bounded (a cache keyed by credential is otherwise a slow leak
 // keyed by tenant), and a single flight per key collapses a cold-start stampede
@@ -60,19 +91,48 @@ import (
 	"time"
 )
 
-// DefaultValidationCacheTTL is the recommended starting point for a hot path:
-// short enough that a revocation is noticed in seconds, long enough that a
-// service under load makes one validation call per credential per interval
-// instead of one per request. It is a SUGGESTION, not a fallback — a
-// non-positive TTL disables the cache rather than substituting this value, so
-// "off" cannot be reached by accident and cannot be left ambiguous.
+// Default per-question TTLs, applied when the client is constructed WITHOUT
+// WithValidationCache / WithValidationCacheOptions. Each positive TTL is the
+// revocation latency of that question in this process; see the file comment.
+const (
+	// DefaultAPIKeyValidationTTL is how long an API key's "valid" is trusted.
+	// A revoked API key can keep validating in this process for up to this long.
+	DefaultAPIKeyValidationTTL = 60 * time.Second
+	// DefaultAPIKeyValidationNegativeTTL is how long an API key's "not valid"
+	// is trusted.
+	DefaultAPIKeyValidationNegativeTTL = 10 * time.Second
+
+	// DefaultTokenValidationTTL is how long a JWT's "valid" is trusted (and never
+	// past the token's own exp). A logged-out session can keep validating in this
+	// process for up to this long.
+	DefaultTokenValidationTTL = 15 * time.Second
+	// DefaultTokenValidationNegativeTTL is how long a JWT's "not valid" is trusted.
+	DefaultTokenValidationNegativeTTL = 5 * time.Second
+
+	// DefaultAuthorizeTTL is how long a permission decision's "allowed" is
+	// trusted — Authorize, and any validation carrying RequiredPermissions. A
+	// removed permission can keep being allowed in this process for up to this
+	// long.
+	DefaultAuthorizeTTL = 15 * time.Second
+	// DefaultAuthorizeNegativeTTL is how long a permission decision's "denied"
+	// is trusted.
+	DefaultAuthorizeNegativeTTL = 5 * time.Second
+)
+
+// DefaultValidationCacheTTL is a suggested single TTL for a consumer that
+// configures the cache EXPLICITLY with WithValidationCache. It is a SUGGESTION,
+// not a fallback — a non-positive TTL disables the cache rather than
+// substituting this value, so "off" cannot be reached by accident and cannot be
+// left ambiguous. (A client that configures nothing gets the per-question
+// defaults above, not this value.)
 const DefaultValidationCacheTTL = 30 * time.Second
 
 // DefaultValidationCacheNegativeTTL is the TTL applied to a NEGATIVE decision
-// (the service answered, and said no) when the caller does not choose one. It is
-// deliberately much shorter than the positive TTL: a denial that has just been
-// fixed by granting a permission should start working promptly, and caching
-// denials aggressively buys little — a denied caller is not usually a hot path.
+// (the service answered, and said no) when an explicit configuration does not
+// choose one. It is deliberately much shorter than the positive TTL: a denial
+// that has just been fixed by granting a permission should start working
+// promptly, and caching denials aggressively buys little — a denied caller is
+// not usually a hot path.
 const DefaultValidationCacheNegativeTTL = 5 * time.Second
 
 // DefaultValidationCacheMaxEntries bounds the number of distinct cached
@@ -82,8 +142,9 @@ const DefaultValidationCacheNegativeTTL = 5 * time.Second
 // revalidation.
 const DefaultValidationCacheMaxEntries = 4096
 
-// ValidationCacheOptions configures the validation cache. A zero TTL disables
-// the cache entirely.
+// ValidationCacheOptions configures the validation cache EXPLICITLY. Passing it
+// (or WithValidationCache) replaces the per-question defaults with one TTL for
+// every question. A zero TTL disables the cache entirely.
 type ValidationCacheOptions struct {
 	// TTL is how long a POSITIVE (valid) decision is trusted. Non-positive
 	// disables the cache.
@@ -105,34 +166,40 @@ type ValidationCacheStats struct {
 	// Hits is the number of validations served without an HTTP request.
 	Hits uint64
 	// Misses is the number of validations that had to call the auth service
-	// (a cold key, or an expired entry).
+	// (a cold key, an expired entry, or a WithFreshValidation call).
 	Misses uint64
 	// Entries is the number of cached decisions currently held, live or expired.
 	Entries int
 }
 
-// WithValidationCache enables an in-process TTL cache for ValidateToken,
-// ValidateTokenWith, ValidateAPIKey and Authorize, using ttl for positive
-// decisions and the package defaults for everything else.
+// WithValidationCache configures the in-process cache for ValidateToken,
+// ValidateTokenWith, ValidateAPIKey and Authorize EXPLICITLY, using ttl for
+// every positive decision and the package defaults for everything else.
+//
+// Without this option the cache is ON with per-question defaults (API key 60 s,
+// JWT 15 s, permission decision 15 s; see validationcache.go). Use this option to
+// choose one TTL yourself, or to turn the cache off:
+//
+//	client := authclient.New("", authclient.WithValidationCache(0)) // off: every validation is an HTTP call
 //
 // A non-positive ttl disables the cache — that is the documented way to turn it
 // off, including in a config-driven service that wants the knob to exist.
 //
-//	client := authclient.New("", authclient.WithValidationCache(authclient.DefaultValidationCacheTTL))
-//
-// READ THIS BEFORE ENABLING. The TTL is the maximum time a revoked credential,
-// a removed permission, or a deleted API key can continue to be accepted by this
-// process. Choose it against your revocation requirement, not against your
-// latency target, and call InvalidateValidation when you revoke something you
-// know about locally.
+// READ THIS BEFORE CHOOSING A TTL. The TTL is the maximum time a revoked
+// credential, a removed permission, or a deleted API key can continue to be
+// accepted by this process. Choose it against your revocation requirement, not
+// against your latency target, and call InvalidateValidation when you revoke
+// something you know about locally.
 func WithValidationCache(ttl time.Duration) Option {
 	return WithValidationCacheOptions(ValidationCacheOptions{TTL: ttl})
 }
 
 // WithValidationCacheOptions is WithValidationCache with full control over the
-// negative TTL and the entry bound.
+// negative TTL and the entry bound. Like WithValidationCache, it replaces the
+// per-question defaults; a non-positive TTL disables the cache.
 func WithValidationCacheOptions(o ValidationCacheOptions) Option {
 	return func(c *Client) {
+		c.vcacheConfigured = true
 		if o.TTL <= 0 {
 			c.vcache = nil
 			return
@@ -151,14 +218,53 @@ func WithValidationCacheOptions(o ValidationCacheOptions) Option {
 		if max <= 0 {
 			max = DefaultValidationCacheMaxEntries
 		}
-		c.vcache = &validationCache{
-			ttl:        o.TTL,
-			negTTL:     neg,
+		v := &validationCache{
+			explicit:   true,
 			maxEntries: max,
 			entries:    make(map[string]*validationEntry),
 			now:        time.Now,
 		}
+		for i := range v.policy {
+			v.policy[i] = ttlPolicy{pos: o.TTL, neg: neg}
+		}
+		c.vcache = v
 	}
+}
+
+// newDefaultValidationCache is the cache a client gets when it configures none:
+// the owner-approved per-question TTLs (see the file comment).
+func newDefaultValidationCache() *validationCache {
+	v := &validationCache{
+		maxEntries: DefaultValidationCacheMaxEntries,
+		entries:    make(map[string]*validationEntry),
+		now:        time.Now,
+	}
+	v.policy[classToken] = ttlPolicy{pos: DefaultTokenValidationTTL, neg: DefaultTokenValidationNegativeTTL}
+	v.policy[classAPIKey] = ttlPolicy{pos: DefaultAPIKeyValidationTTL, neg: DefaultAPIKeyValidationNegativeTTL}
+	v.policy[classDecision] = ttlPolicy{pos: DefaultAuthorizeTTL, neg: DefaultAuthorizeNegativeTTL}
+	return v
+}
+
+// WithFreshValidation returns a context that makes ValidateToken,
+// ValidateTokenWith, ValidateAPIKey and Authorize skip the validation cache for
+// calls made with it: the auth service is always asked, and its answer then
+// refreshes the cached entry for everyone else.
+//
+// Use it on sensitive operations where the cache's revocation latency is not
+// acceptable — admin actions, money movement, ownership changes:
+//
+//	ok, err := client.Authorize(authclient.WithFreshValidation(r.Context()), tok, "billing.refund", res)
+//
+// It changes nothing when the cache is disabled (every call is already fresh).
+func WithFreshValidation(ctx context.Context) context.Context {
+	return context.WithValue(ctx, freshValidationKey{}, true)
+}
+
+type freshValidationKey struct{}
+
+func isFreshValidation(ctx context.Context) bool {
+	v, _ := ctx.Value(freshValidationKey{}).(bool)
+	return v
 }
 
 // ValidationCacheStats returns a snapshot of cache activity. Safe to call
@@ -179,7 +285,8 @@ func (c *Client) ValidationCacheStats() ValidationCacheStats {
 }
 
 // InvalidateValidation drops every cached decision for one credential, across
-// every request shape it was validated under.
+// every request shape it was validated under (identity, permission decisions and
+// resource-scoped Authorize decisions alike).
 //
 // Use it the moment this process learns a credential is no longer good — it
 // revoked the key itself, it handled a revocation webhook, a user logged out.
@@ -215,10 +322,32 @@ func (c *Client) ResetValidationCache() {
 
 // ---- internals ----
 
+// cacheClass names the QUESTION a cached decision answers; each class has its own
+// TTL pair. The class follows the credential and the question, not the method
+// name: ValidateToken with an ab0t_sk_ key is an API-key identity question, and
+// any call carrying RequiredPermissions is a permission decision.
+type cacheClass int
+
+const (
+	classToken    cacheClass = iota // JWT identity
+	classAPIKey                     // API-key identity
+	classDecision                   // a permission decision
+	numCacheClasses
+)
+
+type ttlPolicy struct {
+	pos time.Duration // positive ("valid" / "allowed")
+	neg time.Duration // negative ("not valid" / "denied"); 0 = do not cache negatives
+}
+
 type validationCache struct {
-	ttl        time.Duration
-	negTTL     time.Duration
+	policy     [numCacheClasses]ttlPolicy
 	maxEntries int
+
+	// explicit is true when the consumer configured the cache itself. It keeps
+	// the pre-v0.12.0 scope exactly: the resource-scoped PDP decision inside
+	// Authorize is not cached under an explicit configuration.
+	explicit bool
 
 	// now is time.Now, replaceable in tests so TTL behaviour is asserted
 	// deterministically rather than by sleeping.
@@ -338,17 +467,23 @@ func (v *validationCache) evictIfFullLocked() {
 
 // get runs fetch under the cache, returning a cached *Actor when one is live.
 //
+// class selects the TTL pair for the question being asked. notAfter, when
+// non-zero, is an extra cap on a POSITIVE entry (the credential's own expiry as
+// known to the caller); it can only shorten an entry. A context marked with
+// WithFreshValidation skips the read (always fetches) but still stores the fresh
+// answer, so the next caller benefits from it.
+//
 // The returned Actor is always a COPY: the cache hands the same decision to
 // every caller, and a caller that appended to Permissions would otherwise
 // corrupt the cached entry for everyone else.
-func (v *validationCache) get(ctx context.Context, key string, fetch func(context.Context) (*Actor, error)) (*Actor, error) {
+func (v *validationCache) get(ctx context.Context, key string, class cacheClass, notAfter time.Time, fetch func(context.Context) (*Actor, error)) (*Actor, error) {
 	e := v.entryFor(key)
 
 	e.flight.Lock()
 	defer e.flight.Unlock()
 
 	now := v.now()
-	if e.actor != nil && now.Before(e.expires) {
+	if !isFreshValidation(ctx) && e.actor != nil && now.Before(e.expires) {
 		v.count(true)
 		return copyActor(e.actor), nil
 	}
@@ -356,18 +491,19 @@ func (v *validationCache) get(ctx context.Context, key string, fetch func(contex
 	v.count(false)
 	actor, err := fetch(ctx)
 	if err != nil {
-		// Never cache an error, and never serve a stale decision through one.
-		// An auth-service outage must not extend the life of every credential
-		// this process has seen.
+		// Never cache an error (a 429, a 5xx, a network failure), and never serve
+		// a stale decision through one. An auth-service outage must not extend the
+		// life of every credential this process has seen.
 		return nil, err
 	}
 	if actor == nil {
 		return nil, nil
 	}
 
-	ttl := v.ttl
+	p := v.policy[class]
+	ttl := p.pos
 	if !actor.Valid {
-		ttl = v.negTTL
+		ttl = p.neg
 	}
 	if ttl <= 0 {
 		// Caching disabled for this class of answer (negatives, when the caller
@@ -381,6 +517,9 @@ func (v *validationCache) get(ctx context.Context, key string, fetch func(contex
 	if actor.Valid {
 		if exp, ok := parseActorExpiry(actor.ExpiresAt); ok && exp.Before(expires) {
 			expires = exp
+		}
+		if !notAfter.IsZero() && notAfter.Before(expires) {
+			expires = notAfter
 		}
 	}
 	if !expires.After(now) {
@@ -412,6 +551,12 @@ func copyActor(a *Actor) *Actor {
 	}
 	if a.Audience != nil {
 		out.Audience = append([]string(nil), a.Audience...)
+	}
+	if a.DelegationScope != nil {
+		out.DelegationScope = append([]string(nil), a.DelegationScope...)
+	}
+	if a.DelegationChain != nil {
+		out.DelegationChain = append([]string(nil), a.DelegationChain...)
 	}
 	return &out
 }
