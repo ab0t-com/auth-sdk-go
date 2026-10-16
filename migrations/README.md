@@ -1,6 +1,7 @@
 # migrations/
 
-One directory per breaking upgrade, named `vFROM-to-vTO/`, each containing:
+One directory per breaking upgrade — and per release whose fixes a consumer can see — named
+`vFROM-to-vTO/`, each containing:
 
 - **`MIGRATION.md`** — what changed, why, and before→after for every breaking change, plus an
   agent-applicable find→replace rule list.
@@ -18,6 +19,7 @@ Upgrading across several versions? Run each version's checker in order.
 | [`v0.10.0-to-0.10.1/`](v0.10.0-to-0.10.1/) | breaking (source) | `DelegationGrant` request shape (`GrantDelegation`) |
 | [`v0.10.2-to-v0.11.0/`](v0.10.2-to-v0.11.0/) | breaking (source) | contract-fidelity across ~25 endpoints (return types, field renames/removals) |
 | [`v0.11.2-to-v0.12.0/`](v0.11.2-to-v0.12.0/) | **behavioural** (no source change) | validation cache ON by default (API key 60 s, JWT 15 s, permission 15 s revocation latency); `WithFreshValidation`; new `VerifyAccessTokenLocal`. Its checker lists clients and validation call sites to **review**, plus the `if ttl > 0` opt-in and `authclienttest` patterns the new default changes. See its `CLIENT_NOTICE.md`. |
+| [`v0.12.0-to-v0.12.1/`](v0.12.0-to-v0.12.1/) | **bug fix + additive** (no source change) | `authmw`: a JWT the auth service rejects with 401 is **401, not 503** (and `FailOpen` no longer admits it); a definite 401 is cached as a negative; new opt-in `WithExpectedJWTAudience`, `RequireIdentity`, `IncludePermissions`, `WriteDenial`/`JSONDenial`, `APIKeyHeader`, `authmwtest`. Its checker lists `FailOpen` gates, JWT permissions read without `IncludePermissions`, and tests expecting 503 for a 401. See its `CLIENT_NOTICE.md`. |
 
 ## Automating the migration (optional)
 

@@ -38,14 +38,25 @@ mux.Handle("POST /admin", gate.Require("admin.write", "service", adminHandler))
 http.ListenAndServe(":8080", gate.Authenticate(mux))
 ```
 
-`401` no credential · `403` denied · **`503` auth service unreachable** · else your handler.
+`401` no credential · `401` invalid credential · `403` denied · **`503` auth service unreachable** · else your handler.
 
 **That 503 is the whole point.** "I could not decide" is not "yes". `FailOpen`
 exists but must be set deliberately — a gate that allows on error turns a blip into
-an open door, quietly, because requests succeed and nothing pages anyone.
+an open door, quietly, because requests succeed and nothing pages anyone. The
+reverse holds too: an invalid credential is a 401 (re-authenticate), never a 503.
+
+Every route needs a caller? `gate.RequireIdentity(mux)`. JWT callers need their
+permissions on `authmw.Identity(ctx)`? `Gate{IncludePermissions: true}`. JSON
+errors? `Gate{WriteDenial: authmw.JSONDenial}`.
 
 **Set an expected audience.** Without it, a token minted for a *different* service
-validates against yours.
+validates against yours. If the same routes also accept mesh service keys (which
+carry no audience), use `auth.WithExpectedJWTAudience("my-service")` — it checks
+JWTs only; `WithExpectedAudience` checks API keys too.
+
+**Prove your wiring:** call `authmwtest.Run(t, authmwtest.Contract{Wrap: …})` from
+your own tests (package `authmw/authmwtest`) — it fails on a 503 for an invalid
+credential, a cached outage, a missing cache, and more. See `TESTS.md`.
 
 ## Test the three cases — especially the third
 

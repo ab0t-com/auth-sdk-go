@@ -65,11 +65,11 @@ Pre-1.0, so the middle number carries breaking changes.
 
 | Bump | When |
 |---|---|
-| **minor** (`0.3.0` → `0.4.0`) | the default. Any new method, any behaviour change, any fix a consumer could notice. When in doubt, minor. |
-| **patch** (`0.3.0` → `0.3.1`) | genuinely invisible to consumers: a typo in a doc comment, a test-only change, tooling that ships no API. |
+| **patch** (`0.3.0` → `0.3.1`) | the default. Bug fixes and additive API — new methods, new options, new fields — with every existing default unchanged. A fix a consumer can notice is still a patch; say what they will notice in the changelog. When in doubt, PATCH. |
+| **minor** (`0.3.0` → `0.4.0`) | only for a breaking change (a signature, type or field a consumer's code depends on changes or goes away) or a changed default (code that compiles unchanged now behaves differently by default). Both ship a migration kit. |
 
-Prefer minor. A version number costs nothing; a consumer running code you thought you had shipped
-costs an afternoon of debugging the wrong thing.
+Every change still gets a release: a version number costs nothing; a consumer running code you
+thought you had shipped costs an afternoon of debugging the wrong thing.
 
 **Mark breaking changes explicitly in the changelog**, with what a consumer has to do about it. Being
 pre-1.0 permits a break; it does not excuse an unannounced one.

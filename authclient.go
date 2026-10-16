@@ -151,8 +151,37 @@ func WithUserAgent(ua string) Option {
 
 // WithExpectedAudience sets a default `aud` assertion applied to token/api-key
 // validation, ensuring tokens were minted for this service.
+//
+// It applies to API keys too. A mesh service key minted without an audience is
+// then rejected — if your service accepts such keys, use WithExpectedJWTAudience
+// instead, which asserts the audience on user JWTs only.
 func WithExpectedAudience(aud string) Option {
 	return func(c *Client) { c.expectedAudience = aud }
+}
+
+// WithExpectedJWTAudience sets a default `aud` assertion applied to user JWTs
+// only — ValidateToken / ValidateTokenWith / Authorize with a JWT, and
+// VerifyAccessTokenLocal — and never to ab0t_sk_ API keys.
+//
+// Use it when one route accepts both: user JWTs that must have been minted for
+// this service, and mesh service keys, which carry no audience (an audience
+// assertion on such a key rejects it). Use WithExpectedAudience when every
+// credential, API keys included, must name this service.
+//
+// For a JWT it takes precedence over WithExpectedAudience; an explicit
+// TokenValidationRequest.ExpectedAudience or LocalVerifyOptions.Audience still
+// overrides both for that one call.
+func WithExpectedJWTAudience(aud string) Option {
+	return func(c *Client) { c.expectedJWTAudience = aud }
+}
+
+// jwtAudience is the audience asserted on a user JWT: WithExpectedJWTAudience
+// when set, else WithExpectedAudience.
+func (c *Client) jwtAudience() string {
+	if c.expectedJWTAudience != "" {
+		return c.expectedJWTAudience
+	}
+	return c.expectedAudience
 }
 
 // WithMaxRetries sets how many times a retryable request (idempotent GET, or
@@ -189,12 +218,15 @@ type Client struct {
 	baseURL          string
 	apiKey           string
 	expectedAudience string
-	userAgent        string
-	http             *http.Client
-	timeout          time.Duration
-	maxRetries       int
-	backoffBase      time.Duration
-	backoffMax       time.Duration
+	// expectedJWTAudience, when set, replaces expectedAudience for user JWTs
+	// only (WithExpectedJWTAudience); API keys keep expectedAudience.
+	expectedJWTAudience string
+	userAgent           string
+	http                *http.Client
+	timeout             time.Duration
+	maxRetries          int
+	backoffBase         time.Duration
+	backoffMax          time.Duration
 
 	jwks *jwksCache
 

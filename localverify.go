@@ -109,8 +109,8 @@ func invalidToken(reason string) error { return &AccessTokenError{Reason: reason
 // safe default.
 type LocalVerifyOptions struct {
 	// Audience, when non-empty, must be one of the token's `aud` values (exact
-	// string match). Empty falls back to the client's WithExpectedAudience; when
-	// both are empty the audience is not checked.
+	// string match). Empty falls back to the client's WithExpectedJWTAudience,
+	// then WithExpectedAudience; when all are empty the audience is not checked.
 	Audience string
 	// Issuers is the set of accepted `iss` values. Nil or empty means the
 	// default set: LegacyAccessTokenIssuer and the client's base URL.
@@ -362,7 +362,7 @@ func (c *Client) VerifyAccessTokenLocal(ctx context.Context, token string, opts 
 	out.Audience = aud
 	wantAud := opts.Audience
 	if wantAud == "" {
-		wantAud = c.expectedAudience
+		wantAud = c.jwtAudience()
 	}
 	if wantAud != "" && !containsString(aud, wantAud) {
 		return nil, invalidToken("audience")

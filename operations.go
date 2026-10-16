@@ -167,7 +167,14 @@ func (c *Client) Me(ctx context.Context, token string) (*User, error) {
 // validation result into the same Actor shape, so a caller (and the resource
 // server's Authenticate middleware) can treat both credential types uniformly.
 //
-// The configured expected audience (WithExpectedAudience) is applied if set.
+// The configured expected audience is applied if set: for a JWT,
+// WithExpectedJWTAudience, else WithExpectedAudience; for an API key,
+// WithExpectedAudience only.
+//
+// An invalid JWT is normally answered {valid:false} (a nil error, Actor.Valid
+// false). An auth service that answers HTTP 401 instead surfaces as an
+// *APIError matching IsUnauthorized — also a definite "invalid", never an
+// outage.
 //
 // # Server-side validation, and how that differs from VerifyAccessTokenLocal
 //
@@ -184,7 +191,9 @@ func (c *Client) Me(ctx context.Context, token string) (*User, error) {
 // own exp), "not valid" for 5 s; with an ab0t_sk_ API key, "valid" for 60 s and
 // "not valid" for 10 s. So after a logout this process may keep accepting the
 // token for up to 15 s, and a revoked API key for up to 60 s. Errors (network,
-// 429, 5xx) are never cached and a stale entry is never served through one. Opt
+// 429, 5xx) are never cached and a stale entry is never served through one. The
+// one exception is a definite 401 from validate-token (see ValidateTokenWith),
+// which is a "not valid" answer and is remembered for the negative TTL. Opt
 // out per client with WithValidationCache(0), per call with
 // WithFreshValidation(ctx), or per credential with InvalidateValidation.
 func (c *Client) ValidateToken(ctx context.Context, token string) (*Actor, error) {
@@ -193,7 +202,7 @@ func (c *Client) ValidateToken(ctx context.Context, token string) (*Actor, error
 	}
 	return c.ValidateTokenWith(ctx, TokenValidationRequest{
 		Token:            token,
-		ExpectedAudience: c.expectedAudience,
+		ExpectedAudience: c.jwtAudience(),
 	})
 }
 
@@ -229,9 +238,19 @@ func (c *Client) apiKeyActor(ctx context.Context, key string, requiredPerms []st
 // exp), 5 s for "not valid". A request carrying RequiredPermissions is a
 // permission decision and uses the permission-decision TTLs (also 15 s / 5 s by
 // default). See ValidateToken for the opt-outs.
+//
+// An empty ExpectedAudience is filled from WithExpectedJWTAudience, else
+// WithExpectedAudience.
+//
+// A definite 401 from validate-token is a "not valid" answer, not an outage: it
+// is cached for the negative TTL (5 s by default) like a {valid:false}, so a
+// storm of one bad token costs one auth call per TTL rather than one per
+// request. Cached or not, the caller receives the same error — an *APIError
+// matching IsUnauthorized. Every other error (network, 403, 429, 5xx) is never
+// cached.
 func (c *Client) ValidateTokenWith(ctx context.Context, req TokenValidationRequest) (*Actor, error) {
 	if req.ExpectedAudience == "" {
-		req.ExpectedAudience = c.expectedAudience
+		req.ExpectedAudience = c.jwtAudience()
 	}
 	fetch := func(ctx context.Context) (*Actor, error) {
 		var out Actor
@@ -257,7 +276,7 @@ func (c *Client) ValidateTokenWith(ctx context.Context, req TokenValidationReque
 	// The token's own exp caps a positive entry (validate-token does not report
 	// expires_at for JWTs, so read it from the token; it can only shorten).
 	notAfter := unverifiedJWTExpiry(req.Token)
-	return c.vcache.get(ctx, key, class, notAfter, fetch)
+	return c.vcache.getWith(ctx, key, class, notAfter, fetch, IsUnauthorized)
 }
 
 // Authorize reports whether token may perform action on resource. This is the
@@ -318,7 +337,7 @@ func (c *Client) authorizeUnscoped(ctx context.Context, token, action string) (b
 	actor, err := c.ValidateTokenWith(ctx, TokenValidationRequest{
 		Token:               token,
 		RequiredPermissions: []string{action},
-		ExpectedAudience:    c.expectedAudience,
+		ExpectedAudience:    c.jwtAudience(),
 	})
 	if err != nil {
 		return false, err
@@ -333,12 +352,14 @@ func (c *Client) authorizeOnResource(ctx context.Context, token, action string, 
 	// 1. Resolve the subject (who + tenant) from the credential.
 	var actor *Actor
 	var err error
+	aud := c.expectedAudience
 	if IsAPIKey(token) {
 		actor, err = c.apiKeyActor(ctx, token, nil)
 	} else {
+		aud = c.jwtAudience()
 		actor, err = c.ValidateTokenWith(ctx, TokenValidationRequest{
 			Token:            token,
-			ExpectedAudience: c.expectedAudience,
+			ExpectedAudience: aud,
 		})
 	}
 	if err != nil {
@@ -377,7 +398,7 @@ func (c *Client) authorizeOnResource(ctx context.Context, token, action string, 
 	// Default cache: the decision is a permission decision (15 s / 5 s). The key
 	// is prefixed by the credential (so InvalidateValidation drops it) and covers
 	// every input of the question, including the subject it resolved to.
-	key := validationKey("authorize-resource", token, c.expectedAudience,
+	key := validationKey("authorize-resource", token, aud,
 		[]string{action, resource.Type, resource.ID, actor.UserID, actor.OrgID}, false)
 	notAfter := unverifiedJWTExpiry(token)
 	dec, err := v.get(ctx, key, classDecision, notAfter, check)

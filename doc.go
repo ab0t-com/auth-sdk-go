@@ -104,5 +104,23 @@
 //	ok, err := c.Authorize(ctx, tok.AccessToken, "world.write",
 //	        authclient.Resource{Type: "world", ID: "w1"})
 //
+// # Audience
+//
+// WithExpectedAudience asserts `aud` on every credential, API keys included.
+// Mesh service keys carry no audience, so a service that accepts them alongside
+// user JWTs uses WithExpectedJWTAudience, which asserts it on JWTs only.
+//
+// # HTTP middleware
+//
+// Package authmw gates net/http routes: 401 for a missing or invalid
+// credential, 403 for a denial, 503 when the auth service cannot answer. A JSON
+// API where every route needs a caller, with the caller's permissions:
+//
+//	client := authclient.New("", authclient.WithExpectedJWTAudience("my-service"))
+//	gate := &authmw.Gate{V: client, A: client, IncludePermissions: true, WriteDenial: authmw.JSONDenial}
+//	http.ListenAndServe(":8080", gate.RequireIdentity(mux)) // handlers: authmw.Identity(r.Context())
+//
+// Package authmw/authmwtest checks that wiring from your own tests.
+//
 // See README.md for the full mapping to endpoints.
 package authclient

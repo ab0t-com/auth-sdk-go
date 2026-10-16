@@ -100,7 +100,9 @@ each to the endpoint that can resolve it, so agents and humans go through exactl
 2. **Never turn an error into an allow.** A transport failure or a 5xx means *you do not know*.
    Answer 503, not 200. An auth-service blip must not silently unlock your write surface.
 3. **Set an expected audience.** Without `WithExpectedAudience`, a token minted for a different
-   service will validate against yours.
+   service will validate against yours. `WithExpectedAudience` also applies to API keys, and mesh
+   service keys carry no audience — if your routes accept those too, use
+   `WithExpectedJWTAudience`, which checks user JWTs only.
 
 ## What is covered
 
@@ -202,7 +204,9 @@ time a revocation can take to reach your process — that is the trade, stated p
 | `Authorize`, or any validation with `RequiredPermissions` | 15 s | 5 s | **15 s** (removed permission) |
 
 Errors (network, 429, 5xx) are never cached, and an expired entry is never served when the auth
-service cannot be reached — the cache fails closed. Ways out, from narrow to broad:
+service cannot be reached — the cache fails closed. (A definite `401` from validate-token is an
+answer — "not valid" — and is remembered for the "no" TTL like `{valid:false}`; the caller gets the
+same error either way.) Ways out, from narrow to broad:
 
 ```go
 client.InvalidateValidation(cred)                       // you learned a credential is gone
@@ -282,14 +286,45 @@ mux.Handle("POST /admin", gate.Require("admin.write", "service", adminHandler))
 http.ListenAndServe(":8080", gate.Authenticate(mux))
 ```
 
-`401` no credential · `403` denied · **`503` auth service unreachable** · else your handler.
+`401` no credential · `401` invalid credential · `403` denied · **`503` auth service unreachable** ·
+else your handler.
 
-The credential is read from `Authorization: Bearer …`, or — when that header is absent — from
-`X-API-Key`, the header mesh consumers send their service key in (`authmw.Credential`).
+The credential is read from `Authorization: Bearer …` (the scheme is case-insensitive), or — when
+that header is absent — from `X-API-Key`, the header mesh consumers send their service key in
+(`authmw.Credential`; `Gate.APIKeyHeader` names a different header). `Authorization` wins when both
+are sent.
 
 That 503 is the whole point. "I could not decide" is not "yes" — a gate that allows on error turns
 an auth-service blip into an open door, quietly, because the requests succeed and nothing pages
-anyone. Fail-closed is the default and `FailOpen` must be set deliberately.
+anyone. Fail-closed is the default and `FailOpen` must be set deliberately. The other half: an
+**invalid** credential is a `401` — the auth service answered, so clients re-authenticate instead
+of retrying.
+
+A JSON API where every route needs a caller, accepting user JWTs minted for this service and mesh
+service keys, with each caller's permissions on the request:
+
+```go
+client := auth.New("", auth.WithExpectedJWTAudience("my-service")) // JWTs only; service keys carry no audience
+gate := &authmw.Gate{
+    V: client, A: client,
+    IncludePermissions: true,               // JWT callers get Permissions too (API keys already do)
+    WriteDenial:        authmw.JSONDenial,  // {"error":"invalid token"} instead of text
+}
+http.ListenAndServe(":8080", gate.RequireIdentity(mux)) // 401 no/invalid credential · 503 auth down
+
+// in a handler:
+caller := authmw.Identity(r.Context()) // caller.UserID, caller.OrgID, caller.Permissions
+```
+
+| | no credential | invalid credential | denied | auth unreachable |
+|---|---|---|---|---|
+| `Authenticate` | continues anonymously | 401 | — | 503 |
+| `RequireIdentity` | 401 | 401 | — | 503 |
+| `Require` | 401 | 401 when the auth service answers 401 | 403 | 503 |
+
+Every default is unchanged: `IncludePermissions` off, plain-text denials, `X-API-Key`. Check your
+own wiring against this contract from your tests with
+[`authmw/authmwtest`](authmw/authmwtest/authmwtest.go) — see [TESTS.md](TESTS.md).
 
 ## Testing
 
@@ -380,6 +415,9 @@ make check    # gofmt + go vet + go test + the stdlib-only assertion
 make drift    # compare this SDK against the LIVE OpenAPI spec
 ```
 
+The contract tests — what each proves, and how to run the integration tests against a local auth
+service — are catalogued in [TESTS.md](TESTS.md).
+
 A manual-dispatch-only workflow is staged at `.ci-pending/`; see the README there.
 
 ### `make drift`
@@ -428,5 +466,6 @@ Breaking upgrades ship a migration kit under `migrations/vFROM-to-vTO/`: run its
 against your repo to find every call site to change, and read its `MIGRATION.md`. For v0.10.0 see
 `migrations/v0.9.2-to-v0.10.0/`. For the default-on validation cache (v0.12.0) see
 `migrations/v0.11.2-to-v0.12.0/` — no source changes are required, but its checker lists the
-validation call sites to review for revocation-latency sensitivity. The full index is
-[`migrations/README.md`](migrations/README.md).
+validation call sites to review for revocation-latency sensitivity. For v0.12.1 (authmw: invalid
+JWT is 401 not 503, plus opt-in settings) see `migrations/v0.12.0-to-v0.12.1/` — no source changes
+required. The full index is [`migrations/README.md`](migrations/README.md).

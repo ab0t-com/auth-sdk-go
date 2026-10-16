@@ -4,6 +4,76 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] — 2026-10-16 — `authmw`: an invalid JWT is 401, not 503 · opt-in gate settings · JWT-only audience
+
+> **Bug fixes + additive API. No source change required, and every default is unchanged.** One fix
+> is visible on the wire (below). Migration kit: `migrations/v0.12.0-to-v0.12.1/` (its read-only
+> `migrate-check.sh` lists `FailOpen` gates, JWT permissions read without `IncludePermissions`, and
+> tests that expect 503 for a 401; `--advisory` never fails a build).
+
+### Fixed — `authmw` answered 503 "auth unavailable" for an invalid JWT (VISIBLE STATUS CHANGE)
+
+**Who this affects:** services that gate routes with `authmw.Gate` (`Authenticate`, `Require`)
+against an auth service that answers an invalid, expired or logged-out JWT at
+`POST /auth/validate-token` with **HTTP 401**. `authmw` treated every validation error as an outage
+and answered **503 "auth unavailable"** — so callers were told to retry instead of re-authenticating,
+and monitoring saw a false outage. With `FailOpen` set it was worse: `Authenticate` passed the request
+on anonymously and **`Require` ran the handler** for that invalid credential.
+
+- `Authenticate` (and the new `RequireIdentity`): a definite **401 or 403** from the auth service is
+  now **401 "invalid token"**. `Require`: a **401** is now **401 "invalid token"**, a **403** is
+  **403 "forbidden"**. Anything else — network failure, timeout, 429, 5xx — is **503, unchanged**.
+- `FailOpen` now lets through only "could not decide" (the 503 cases), never an invalid or denied
+  credential.
+- An auth service that answers an invalid JWT with `200 {"valid":false}` already produced 401 and
+  still does; nothing changes for it.
+- **What your clients will notice:** `503` → `401` for those requests. A client that retried on 503
+  now gets the correct "re-authenticate" signal.
+
+### Fixed — a storm of one invalid JWT cost one auth call per request
+
+**Who this affects:** every client with the default validation cache. A definite **401** from
+`POST /auth/validate-token` was an error, and errors are never cached, so N requests with the same
+bad token made N auth calls. It is now remembered for the negative TTL (5 s by default, the same as
+`{valid:false}`; under an explicit `WithValidationCacheOptions`, its `NegativeTTL`).
+`ValidateToken` / `ValidateTokenWith` / `Authorize` return **exactly the same error** as before —
+an `*APIError` matching `IsUnauthorized` — whether it came from the service or the cache.
+`WithFreshValidation`, `InvalidateValidation` and `WithValidationCache(0)` behave as before. Every
+other error (403, 429, 5xx, network) is still never cached, and a 401 from `validate-api-key` is not
+cached.
+
+### Added
+
+- `WithExpectedJWTAudience(aud)` — asserts `aud` on **user JWTs only** (`ValidateToken`,
+  `ValidateTokenWith`, `Authorize` with a JWT, and as the default for `VerifyAccessTokenLocal`),
+  never on `ab0t_sk_` API keys. Use it when the same routes accept JWTs minted for your service and
+  mesh service keys, which carry no audience; `WithExpectedAudience`, which also applies to API keys,
+  rejects those keys. For a JWT it takes precedence over `WithExpectedAudience`. `WithExpectedAudience`
+  is unchanged.
+- `authmw.Gate.RequireIdentity(next)` — for routers where every route needs a caller: 401 no or
+  invalid credential, 503 auth unreachable (`FailOpen` honoured as in `Authenticate`), else `next`
+  with `authmw.Identity` set.
+- `authmw.Gate.IncludePermissions` (default off) — asks the auth service for a JWT caller's
+  permissions, so `authmw.Identity(ctx).Permissions` is populated for JWTs as it already is for API
+  keys. Needs a `V` that also implements `ValidateTokenWith` (`*auth.Client` does); with one that
+  does not (e.g. `authclienttest.Fake`), a JWT request is a 503 rather than an identity with its
+  permissions silently missing.
+- `authmw.Gate.WriteDenial` (default: `http.Error` text, unchanged) and `authmw.JSONDenial`, which
+  writes `{"error":"<message>"}` with `Content-Type: application/json`. Messages stay static.
+- `authmw.Gate.APIKeyHeader` (default `X-API-Key`, unchanged). `Authorization` still wins when both
+  are sent.
+- Package `authmw/authmwtest` — `Run(t, Contract{Wrap: …})` checks **your** gate wiring from your
+  own test suite against a fake auth service: no credential / invalid JWT / invalid API key → 401,
+  auth down or unreachable → 503 and not cached, valid credential → your handler with an identity
+  (and permissions), repeats cost no extra auth calls, JSON denials when configured.
+- `TESTS.md` — the catalogue of the contract tests and how to run them.
+
+### Changed
+
+- `authmw.Bearer` matches the `Bearer` scheme case-insensitively (RFC 7235): `bearer x` → `x`.
+  Previously the whole header was returned and the credential was rejected. Headers without a
+  Bearer scheme are returned whole, as before.
+
 ## [0.12.0] — 2026-10-16 — validation cache ON by default + `VerifyAccessTokenLocal`
 
 > **BEHAVIOURAL change, no source change required.** No public signature changes; one default

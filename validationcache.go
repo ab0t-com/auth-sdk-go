@@ -66,7 +66,10 @@ package authclient
 //     through a transient outage, an EXPIRED entry is never served after a failed
 //     refresh. During an auth outage this cache stops answering rather than
 //     extending every credential it has seen. Failing closed is the correct
-//     direction for an authorization decision.
+//     direction for an authorization decision. (One answer arrives as an error
+//     but is not a failure: a definite 401 from validate-token says "this token
+//     is not valid". It is cached exactly like a {valid:false} — negative TTL —
+//     and handed back as the same error. It can only ever deny.)
 //
 //  3. It outlives the credential. A positive entry's TTL is additionally capped
 //     by the token's own expiry — the ExpiresAt the service reports, and for a
@@ -364,7 +367,11 @@ type validationEntry struct {
 	// makes one auth call rather than one per in-flight request.
 	flight sync.Mutex
 
-	actor   *Actor
+	actor *Actor
+	// err, when non-nil, is a cached DEFINITE negative that the service
+	// delivered as an error (a 401 from validate-token). Only getWith's
+	// negativeErr classifier puts an error here; no other error is ever stored.
+	err     error
 	expires time.Time
 }
 
@@ -437,7 +444,7 @@ func (v *validationCache) evictIfFullLocked() {
 		if !e.flight.TryLock() {
 			continue
 		}
-		expired := e.actor == nil || !now.Before(e.expires)
+		expired := (e.actor == nil && e.err == nil) || !now.Before(e.expires)
 		e.flight.Unlock()
 		if expired {
 			delete(v.entries, k)
@@ -477,20 +484,45 @@ func (v *validationCache) evictIfFullLocked() {
 // every caller, and a caller that appended to Permissions would otherwise
 // corrupt the cached entry for everyone else.
 func (v *validationCache) get(ctx context.Context, key string, class cacheClass, notAfter time.Time, fetch func(context.Context) (*Actor, error)) (*Actor, error) {
+	return v.getWith(ctx, key, class, notAfter, fetch, nil)
+}
+
+// getWith is get with one addition: an error for which negativeErr reports true
+// is a DEFINITE negative answer delivered as an error (validate-token's 401),
+// not a failure. It is cached for the class's negative TTL — exactly like a
+// {valid:false} — and a hit returns a copy of the same error. A nil negativeErr
+// caches no error at all; every error it does not match is never cached.
+func (v *validationCache) getWith(ctx context.Context, key string, class cacheClass, notAfter time.Time, fetch func(context.Context) (*Actor, error), negativeErr func(error) bool) (*Actor, error) {
 	e := v.entryFor(key)
 
 	e.flight.Lock()
 	defer e.flight.Unlock()
 
 	now := v.now()
-	if !isFreshValidation(ctx) && e.actor != nil && now.Before(e.expires) {
-		v.count(true)
-		return copyActor(e.actor), nil
+	if !isFreshValidation(ctx) && now.Before(e.expires) {
+		if e.actor != nil {
+			v.count(true)
+			return copyActor(e.actor), nil
+		}
+		if e.err != nil {
+			v.count(true)
+			return nil, copyError(e.err)
+		}
 	}
 
 	v.count(false)
 	actor, err := fetch(ctx)
 	if err != nil {
+		if negativeErr != nil && negativeErr(err) {
+			// A definite "not valid", delivered as an error. Remember it for the
+			// negative TTL (it can only deny) and hand back the same error.
+			if neg := v.policy[class].neg; neg > 0 {
+				e.actor, e.err, e.expires = nil, copyError(err), now.Add(neg)
+			} else {
+				e.actor, e.err, e.expires = nil, nil, time.Time{}
+			}
+			return nil, err
+		}
 		// Never cache an error (a 429, a 5xx, a network failure), and never serve
 		// a stale decision through one. An auth-service outage must not extend the
 		// life of every credential this process has seen.
@@ -508,7 +540,7 @@ func (v *validationCache) get(ctx context.Context, key string, class cacheClass,
 	if ttl <= 0 {
 		// Caching disabled for this class of answer (negatives, when the caller
 		// opted out). Drop any stale entry so it cannot be served later.
-		e.actor, e.expires = nil, time.Time{}
+		e.actor, e.err, e.expires = nil, nil, time.Time{}
 		return actor, nil
 	}
 
@@ -523,12 +555,22 @@ func (v *validationCache) get(ctx context.Context, key string, class cacheClass,
 		}
 	}
 	if !expires.After(now) {
-		e.actor, e.expires = nil, time.Time{}
+		e.actor, e.err, e.expires = nil, nil, time.Time{}
 		return actor, nil
 	}
 
-	e.actor, e.expires = copyActor(actor), expires
+	e.actor, e.err, e.expires = copyActor(actor), nil, expires
 	return actor, nil
+}
+
+// copyError hands out a cached error so no caller can alter the shared entry: an
+// *APIError is copied (same type, same fields); anything else is returned as is.
+func copyError(err error) error {
+	if ae, ok := err.(*APIError); ok && ae != nil {
+		cp := *ae
+		return &cp
+	}
+	return err
 }
 
 func (v *validationCache) count(hit bool) {
