@@ -4,6 +4,36 @@ All notable changes to the ab0t Auth Service Go SDK.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] — 2026-10-17 — local JWT verification: strict token encoding and dates · the validation cache stays bounded
+
+> **Bug fixes. No source change required; every default and every exported API is unchanged.** Three
+> defects found by an adversarial test pass on 0.12.1, all Low (none lets anyone forge a credential).
+> Migration kit: `migrations/v0.12.1-to-v0.12.2/` (read-only `migrate-check.sh`).
+
+### Fixed
+- **One signed token no longer has several accepted spellings (`VerifyAccessTokenLocal`).** Token
+  segments were decoded leniently: trailing `=` was stripped and unused padding bits were ignored, so
+  `token+"="`, `token+"=="` and up to 16 alternate last characters of the signature all verified. A
+  deny-list, a replay set or this SDK's own validation cache, keyed on the token string, saw them as
+  different tokens. Each segment is now decoded as RFC 7515 §2 defines it (no padding, canonical);
+  anything else is `malformed`. Tokens minted by the auth service are unaffected (they never pad).
+  JWKS key fields stay lenient.
+- **A NumericDate past the year 9999 is `malformed`, not a date in the distant past.** An `nbf` or
+  `iat` of `1e19` overflowed int64, read as long ago, and was accepted. `exp`, `nbf` and `iat` beyond
+  `253402300799` (9999-12-31T23:59:59Z) are now refused as `malformed` (an `exp` that far out was
+  already refused, as `expired`, by accident).
+- **The validation cache stays within `MaxEntries` (4096 by default) under concurrency.** Entries
+  whose fetch was in flight could not be evicted and only one live entry was evicted per insert, so a
+  burst of concurrent cold misses grew the cache past the bound and it stayed there. Eviction now goes
+  down to the bound: expired entries, then the live entries closest to expiry, then (only if still
+  full) in-flight entries. An evicted in-flight fetch still answers the callers already waiting on it;
+  that one result is just not cached.
+
+### What you might notice
+- A token string that is not canonical base64url (padded, or with non-zero padding bits) is refused
+  by `VerifyAccessTokenLocal` with reason `malformed`. A test fixture built by hand that way needs
+  regenerating; the kit's checker lists likely ones.
+
 ## [0.12.1] — 2026-10-16 — `authmw`: an invalid JWT is 401, not 503 · opt-in gate settings · JWT-only audience
 
 > **Bug fixes + additive API. No source change required, and every default is unchanged.** One fix

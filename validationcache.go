@@ -88,6 +88,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -428,47 +429,51 @@ func (v *validationCache) entryFor(key string) *validationEntry {
 	return e
 }
 
-// evictIfFullLocked keeps the cache bounded. Caller must hold v.mu.
+// evictIfFullLocked makes room for one new entry so the cache never holds more
+// than maxEntries. Caller must hold v.mu.
 //
-// Expired entries go first — they are free to drop and dropping them is not even
-// a cache miss. Only if that clears nothing does it evict a live entry, choosing
-// the one closest to expiry, so the freshest decisions survive. Dropping any
-// entry is always safe: the cost is one revalidation.
+// Order: every expired entry first (free to drop — not even a cache miss); then
+// live entries closest to expiry, so the freshest decisions survive; and only if
+// the cache is STILL full, entries whose fetch is in flight. Dropping an
+// in-flight entry only removes it from the map: its fetch still completes and
+// answers the callers already waiting on it — that one result is just not
+// cached. Before v0.12.2 in-flight entries were never dropped and only one live
+// entry was evicted per insert, so a burst of concurrent cold misses grew the map
+// past MaxEntries and it stayed there (ticket F-3). Dropping any entry is always
+// safe: the cost is one revalidation.
 func (v *validationCache) evictIfFullLocked() {
-	if len(v.entries) < v.maxEntries {
+	target := v.maxEntries - 1 // room for the entry about to be inserted
+	if len(v.entries) <= target {
 		return
 	}
 	now := v.now()
-	freed := false
+	type candidate struct {
+		key     string
+		expires time.Time
+	}
+	var live, inFlight []candidate
 	for k, e := range v.entries {
 		if !e.flight.TryLock() {
+			inFlight = append(inFlight, candidate{key: k})
 			continue
 		}
 		expired := (e.actor == nil && e.err == nil) || !now.Before(e.expires)
+		exp := e.expires
 		e.flight.Unlock()
 		if expired {
 			delete(v.entries, k)
-			freed = true
+		} else {
+			live = append(live, candidate{key: k, expires: exp})
 		}
 	}
-	if freed {
-		return
-	}
-	var victim string
-	var soonest time.Time
-	first := true
-	for k, e := range v.entries {
-		if !e.flight.TryLock() {
-			continue
+	sort.Slice(live, func(i, j int) bool { return live[i].expires.Before(live[j].expires) })
+	for _, group := range [][]candidate{live, inFlight} {
+		for _, c := range group {
+			if len(v.entries) <= target {
+				return
+			}
+			delete(v.entries, c.key)
 		}
-		exp := e.expires
-		e.flight.Unlock()
-		if first || exp.Before(soonest) {
-			victim, soonest, first = k, exp, false
-		}
-	}
-	if !first {
-		delete(v.entries, victim)
 	}
 }
 

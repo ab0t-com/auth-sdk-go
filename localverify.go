@@ -211,15 +211,15 @@ func (c *Client) VerifyAccessTokenLocal(ctx context.Context, token string, opts 
 		return nil, invalidToken("malformed")
 	}
 	parts := strings.Split(token, ".")
-	headerJSON, err := b64url(parts[0])
+	headerJSON, err := tokenSegment(parts[0])
 	if err != nil {
 		return nil, invalidToken("malformed")
 	}
-	payloadJSON, err := b64url(parts[1])
+	payloadJSON, err := tokenSegment(parts[1])
 	if err != nil {
 		return nil, invalidToken("malformed")
 	}
-	sig, err := b64url(parts[2])
+	sig, err := tokenSegment(parts[2])
 	if err != nil {
 		return nil, invalidToken("malformed")
 	}
@@ -403,9 +403,30 @@ func (c *Client) VerifyAccessTokenLocal(ctx context.Context, token string, opts 
 
 // ---- helpers ----
 
+// b64url decodes a JWK field (n, e). Lenient on purpose: a key comes from the
+// configured auth service over TLS, and tolerating padding there costs nothing.
 func b64url(s string) ([]byte, error) {
 	return base64.RawURLEncoding.DecodeString(strings.TrimRight(s, "="))
 }
+
+// tokenSegment decodes one JWS compact segment exactly as RFC 7515 §2 defines
+// BASE64URL: no padding, and canonical (unused low bits zero). The lenient
+// decoder accepted `tok+"="` and alternate last characters of the signature, so
+// one signed token had many accepted spellings, and anything keyed on the token
+// string (a deny-list, a replay set, this SDK's validation cache) saw them as
+// different tokens (v0.12.2, ticket F-2).
+func tokenSegment(s string) ([]byte, error) {
+	if strings.Contains(s, "=") {
+		return nil, errors.New("padded segment")
+	}
+	return base64.RawURLEncoding.Strict().DecodeString(s)
+}
+
+// maxNumericDate is 9999-12-31T23:59:59Z. A NumericDate beyond it is refused
+// as malformed: converting a float of 2^63 seconds or more to int64 is
+// undefined, and on amd64 it wrapped to the distant past, so a far-future nbf
+// or iat read as "long ago" and passed (v0.12.2, ticket F-1).
+const maxNumericDate = 253402300799
 
 // rsaPublicKey builds a verification key from a JWK, refusing anything that is
 // not an RSA signing key of adequate size.
@@ -454,7 +475,7 @@ func numericDate(m map[string]any, k string) (time.Time, bool, error) {
 		return time.Time{}, true, errors.New("not a number")
 	}
 	f, err := n.Float64()
-	if err != nil || f < 0 {
+	if err != nil || f < 0 || f > maxNumericDate {
 		return time.Time{}, true, errors.New("not a NumericDate")
 	}
 	sec := int64(f)
